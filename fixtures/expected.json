@@ -65,7 +65,7 @@
         "aaf5a86e-4886-4d48-bcfd-36d168e7ed23",
         "4ff6f2c5-0d25-4954-b404-2f1e6af7ea31"
       ],
-      "summary": "Dmitri Okafor was travelling: sign-ins came from a new country but always from their usual laptop, with no password reset and no new MFA method."
+      "summary": "Dmitri Okafor was travelling: sign-ins came from a new country but only from devices they had used before, with no password reset and no new MFA method."
     }
   ]
 }

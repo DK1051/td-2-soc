@@ -607,8 +607,8 @@ class Generator:
         span = timedelta(days=2)
         t = self.place(span, (8, 12), True)
         case = Case(p, (
-            f"{p.display} was travelling: sign-ins came from a new country but always from their "
-            "usual laptop, with no password reset and no new MFA method."))
+            f"{p.display} was travelling: sign-ins came from a new country but only from devices "
+            "they had used before, with no password reset and no new MFA method."))
         case.events += self.away_spell(p, t, span, loc, ip, self.rng.randrange(3, 5))
         return case
 
@@ -678,7 +678,7 @@ class Generator:
         t = self.place(span, (9, 13), True)
         case = Case(p, (
             f"{p.display} used a VPN, so the sign-in place changed country, but every sign-in "
-            "came from their usual laptop with no reset and no new MFA method."))
+            "came from a device they had used before, with no reset and no new MFA method."))
         case.events += self.away_spell(p, t, span, loc, ip, 3)
         return case
 
