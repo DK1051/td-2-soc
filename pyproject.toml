@@ -1,0 +1,14 @@
+# Shared settings for ruff (the linter) and pytest (the test runner).
+# Repo convention: test file basenames are unique across the whole repo
+# (test_2e_generator.py, later test_2h_headers.py, ...), because `pytest -q` from the
+# root collects every project folder and its default import mode rejects two test files
+# with the same name.
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.pytest.ini_options]
+markers = [
+    "kusto: needs the Kusto emulator on KUSTO_URL",
+]

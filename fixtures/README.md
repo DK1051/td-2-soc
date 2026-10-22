@@ -1,0 +1,3 @@
+# fixtures
+
+Small, **unsealed** sample data for automated tests only: `signin.jsonl`, `audit.jsonl` and `expected.json` (the plain-text answer sheet for these few hundred rows) were produced by `2e-blind-hunt/generate.py --seed 7 --days 3 --events 300 --takeovers 2 --lookalikes 3` (the exact command is in `2e-blind-hunt/README.md`). Because the seed and the answers are public here, this is NOT the hunt dataset: the real hunt data lives in `2e-blind-hunt/data/` and its answer key is encrypted. All people, companies and addresses in these files are fictional (`mapleharbour.example`; IP addresses come from the documentation ranges reserved by RFC 5737).
