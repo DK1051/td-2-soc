@@ -1,0 +1,33 @@
+// TD-2H-03: admin password reset, then a privileged action by the same user within 48 hours.
+// Operation and app names match the synthetic generator; real Entra spellings are TODO(verify).
+// Step 1: the resets.
+let resets = AuditLogs
+    | where OperationName == "Reset password (by admin)"
+    | project ResetTime = TimeGenerated,
+        UserPrincipalName = tostring(TargetResources[0].userPrincipalName),
+        ResetBy = tostring(InitiatedBy.user.userPrincipalName),
+        ResetCorrelationId = CorrelationId;
+// Step 2: three kinds of privileged action, each reduced to (time, user, action, id).
+// "union" stacks the three result sets into one list.
+let privileged = union
+    // The user added someone to an administrator role (the user is the one who did it).
+    (AuditLogs | where OperationName == "Add member to role"
+        | project PrivTime = TimeGenerated, UserPrincipalName = tostring(InitiatedBy.user.userPrincipalName),
+            PrivAction = "role member added", PrivCorrelationId = CorrelationId),
+    // The recovery email (OtherMails) of the account was changed.
+    (AuditLogs | where OperationName == "Update user"
+        | where tostring(TargetResources[0].modifiedProperties[0].displayName) == "OtherMails"
+        | project PrivTime = TimeGenerated, UserPrincipalName = tostring(TargetResources[0].userPrincipalName),
+            PrivAction = "recovery email changed", PrivCorrelationId = CorrelationId),
+    // A successful sign-in (ResultType "0") to the Core Banking Admin app.
+    (SigninLogs | where AppDisplayName == "Core Banking Admin" and ResultType == "0"
+        | project PrivTime = TimeGenerated, UserPrincipalName,
+            PrivAction = "Core Banking Admin sign-in", PrivCorrelationId = CorrelationId);
+resets
+// Pair each reset with the same user's privileged actions.
+| join kind=inner privileged on UserPrincipalName
+// Keep actions 0 to 48 hours after the reset (48h is a planning value).
+| where PrivTime between (ResetTime .. (ResetTime + 48h))
+// Final columns: TimeGenerated is the alert time (the privileged action).
+| project TimeGenerated = PrivTime, UserPrincipalName, ResetBy, ResetTime, PrivTime,
+    PrivAction, ResetCorrelationId, PrivCorrelationId

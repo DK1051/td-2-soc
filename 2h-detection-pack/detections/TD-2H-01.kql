@@ -1,0 +1,24 @@
+// TD-2H-01: admin password reset, then a new MFA method for the same user within 24 hours.
+// Operation names match the synthetic generator; real Entra spellings are TODO(verify).
+// "let" saves a query result under a name so later lines can reuse it.
+// Step 1: the resets. TargetResources[0] is the account that was changed (the person reset).
+let resets = AuditLogs
+    | where OperationName == "Reset password (by admin)"
+    | project ResetTime = TimeGenerated,
+        UserPrincipalName = tostring(TargetResources[0].userPrincipalName),
+        ResetBy = tostring(InitiatedBy.user.userPrincipalName),
+        ResetCorrelationId = CorrelationId;
+// Step 2: every time someone registered a new sign-in (MFA) method for themselves.
+let registrations = AuditLogs
+    | where OperationName == "User registered security info"
+    | project RegisterTime = TimeGenerated,
+        UserPrincipalName = tostring(TargetResources[0].userPrincipalName),
+        MfaCorrelationId = CorrelationId;
+resets
+// Pair each reset with that same user's registrations (an inner join keeps matching pairs only).
+| join kind=inner registrations on UserPrincipalName
+// Keep a pair only when the registration came 0 to 24 hours AFTER the reset (24h is a planning value).
+| where RegisterTime between (ResetTime .. (ResetTime + 24h))
+// Final columns: TimeGenerated is the alert time (the registration); the rest is the evidence.
+| project TimeGenerated = RegisterTime, UserPrincipalName, ResetBy, ResetTime,
+    RegisterTime, ResetCorrelationId, MfaCorrelationId

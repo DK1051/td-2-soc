@@ -39,3 +39,8 @@ What each result means for Track 2:
 - `reach https://management.azure.com/ -> HTTP 000` — blocked, as expected; no Azure access from a cloud session.
 
 Decision (step 2 rule): `arch` is `x86_64` and `avx2 flags` is 4, but docker is `not available`, so T2-S02 is **AT RISK**: it falls back to data tests in the `kql` CI job (GitHub runners are x86-64 with Docker). The background image pull did not run: `/tmp/kusto-pull.log` does not exist, because this session's start hook belongs to the hub repo, not to `td-2-soc`.
+
+### 2026-10-22 (T2-S02) — Docker engine and emulator
+- The probe's `docker: not available` meant the Docker *engine* was not running, not that Docker is missing. Started by hand with `dockerd` (this session runs as root): `Server Version: 29.9.1`, storage driver overlayfs.
+- Emulator image pinned by digest: `mcr.microsoft.com/azuredataexplorer/kustainer-linux@sha256:7479dc8efa4b3c15bc1a245b418464e88b5328cf6e4781881d73fe4f79d03eb1`. Read from Microsoft's registry (`Docker-Content-Digest` header for `latest` on 2026-10-22) and matched by `docker image inspect` after the pull.
+- The emulator ran in the session on host port 9000 (`.show cluster` → 200), so T2-S02 took the emulator path, not the fallback.

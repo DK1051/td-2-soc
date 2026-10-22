@@ -91,7 +91,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       kusto:
-        image: mcr.microsoft.com/azuredataexplorer/kustainer-linux:latest
+        image: mcr.microsoft.com/azuredataexplorer/kustainer-linux@sha256:7479dc8efa4b3c15bc1a245b418464e88b5328cf6e4781881d73fe4f79d03eb1
         env:
           ACCEPT_EULA: "Y"
         ports:

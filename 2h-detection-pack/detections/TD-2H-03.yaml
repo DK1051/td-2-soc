@@ -1,0 +1,21 @@
+id: TD-2H-03
+title: "Admin password reset followed by a privileged action within 48 hours"
+description: >-
+  Finds users whose password was reset by an administrator and who then added someone to an
+  administrator role, changed the account's recovery email address, or signed in to the Core
+  Banking Admin app within 48 hours. These are the actions an attacker takes first to keep control
+  or to reach money systems.
+tables:
+  - SigninLogs
+  - AuditLogs
+attack_technique_ids:
+  - TODO(verify)
+al26_010_control: "restrict and closely monitor MFA reset, recovery, and device re-enrolment processes"
+severity: high
+false_positive_notes: >-
+  Someone whose job includes Core Banking Admin will trigger it when they sign in normally after a
+  routine reset, and one account can produce several rows (every later sign-in in the window).
+  Look-alikes LA1 to LA3 have no privileged action after their reset, so they stay quiet. The 48
+  hour window is a planning value.
+expected_hits: [TK1, TK2]
+expected_quiet: [LA1, LA2, LA3]

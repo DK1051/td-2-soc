@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "nohup docker pull mcr.microsoft.com/azuredataexplorer/kustainer-linux:latest > /tmp/kusto-pull.log 2>&1 &"
+            "command": "nohup docker pull mcr.microsoft.com/azuredataexplorer/kustainer-linux@sha256:7479dc8efa4b3c15bc1a245b418464e88b5328cf6e4781881d73fe4f79d03eb1 > /tmp/kusto-pull.log 2>&1 &"
           }
         ]
       }

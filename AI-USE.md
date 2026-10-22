@@ -15,10 +15,13 @@ Eojin
 ## 2H Takeover Detection Pack
 
 Claude (models used)
-- (to be filled at wrap)
+- T2-S02 director (Opus 5.5): pinned the emulator image by digest, started the Docker engine and the emulator, asked Eojin the design choices, logged caveats, opened the PR.
+- T2-S02 `builder` (Sonnet 5.5): six KQL detections with YAML headers, the header and static KQL checks, the Kusto test harness (fixtures and a synthetic test database), `run_detections.py` with the blind-hunt guard.
+- T2-S02 `chores` (Haiku 5.5): the 2H README table and sections; YAML validation.
+- T2-S02 `verifier` (Opus 5.5): mid-review (instead of redteam, because these are detection rules) and final check, `docs/verify/T2-S02.md`.
 
 Eojin
-- (to be filled at wrap)
+- Decided: TD-2H-01 low-severity early warning, TD-2H-02 needs a new device, TD-2H-05 synthetic test. Kept his blind hunt separate (no detection ran on the hunt data). Still to do: record the credit balance; commit `my-labels.json` and the five reports before T2-C1.
 
 ## 2A Injection-Proof Triage
 

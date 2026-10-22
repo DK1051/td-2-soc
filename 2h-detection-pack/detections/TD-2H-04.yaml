@@ -1,0 +1,22 @@
+id: TD-2H-04
+title: "Full takeover chain: reset, new MFA, new device, privileged action"
+description: >-
+  Joins the four steps of the takeover chain for each reset user (reset, new MFA method within 24
+  hours, first-ever sign-in from a device within 24 hours after that, privileged action within 48
+  hours of the reset) and returns a chain_score counting the stages hit. It alerts when the score
+  is 3 or more, and shows the time of each stage.
+tables:
+  - SigninLogs
+  - AuditLogs
+attack_technique_ids:
+  - TODO(verify)
+al26_010_control: "restrict and closely monitor MFA reset, recovery, and device re-enrolment processes"
+severity: high
+false_positive_notes: >-
+  A lost-phone case with a callback (LA1) reaches a score of 2 (reset and new MFA) and stays below
+  the alert level of 3. A user who really does get a new laptop right after a reset and then uses
+  Core Banking Admin would score 4 and need a human to check the ticket. Windows (24 h, 24 h, 48
+  h) and the alert level are planning values; "new device" means the first sign-in from that
+  device id anywhere in the loaded data, so on short data a normal first sign-in can count as new.
+expected_hits: [TK1, TK2]
+expected_quiet: [LA1, LA2, LA3]
