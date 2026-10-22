@@ -815,26 +815,26 @@ class Generator:
 
     def routine_recovery_changes(self, count: int) -> None:
         """Ordinary changes of a recovery email address (the same property a hidden sequence
-        changes): half self-service by the user from their usual place, half done by the
-        helpdesk during the working day. Each follows a normal sign-in from a known device and
-        involves no password reset and no new MFA method."""
+        changes): mostly self-service by the user from their usual place, sometimes done by the
+        helpdesk during the working day. No password reset and no new MFA method are involved.
+        Nothing is placed next to the change on purpose: the user's own sign-ins around it come
+        from normal life, exactly as around a hidden sequence, so timing alone separates nothing.
+        Self-service changes are spread over the day and evening (to about 23:30 local)."""
         for i in range(count):
             p = self.take_user(lambda q: q.dept != "helpdesk")
-            if i % 2 == 0:
-                t = self.place(timedelta(hours=1), (8, 20), None)
-                self.known_signin(t - self.minutes(2, 15), p)
-                ip = self.usual_context(p, t)[1]
+            if i % 3 != 2:
+                hours = (18, 23.5) if self.rng.random() < 0.6 else (8, 18)
+                t = self.place(timedelta(hours=1), hours, None)
+                ip = self.usual_context(p, t)[1]  # same rule that picks the IP of a sign-in
                 mail = self.recovery_mail(p)
                 self.audit(t, OP_UPDATE_USER, p, ip, p, [("OtherMails", None, mail)])
             else:
                 t = self.place(timedelta(hours=1), (9, 16.5), True)
                 agent = self.pick(self.helpdesk)
                 self.known_signin(t - self.minutes(3, 20), agent)
-                self.known_signin(t - self.minutes(2, 15), p)
                 ip = self.usual_context(agent, t)[1]
                 mail = self.recovery_mail(p)
                 self.audit(t, OP_UPDATE_USER, agent, ip, p, [("OtherMails", None, mail)])
-            self.known_signin(t + self.minutes(5, 60), p)
 
     def routine_away(self) -> None:
         """Unlabelled travellers and VPN users, one per place in use, so that every place the

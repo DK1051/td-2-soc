@@ -390,23 +390,84 @@ def test_every_property_name_in_a_takeover_row_also_appears_in_ordinary_rows(
 
 def test_ordinary_recovery_changes_have_no_reset_and_no_new_mfa(default_run):
     takeover_ids = {c for case in default_run["labels"]["takeovers"] for c in case["evidence"]}
+    checked = 0
     for r in default_run["audit"]:
         target = r["TargetResources"][0]
         if r["CorrelationId"] in takeover_ids or not any(
                 m["displayName"] == "OtherMails" for m in target["modifiedProperties"]):
             continue
+        checked += 1
         user = target["userPrincipalName"]
         t = parse_t(r["TimeGenerated"])
         near = [a for a in default_run["audit"]
                 if a is not r and a["TargetResources"][0]["userPrincipalName"] == user
-                and abs(parse_t(a["TimeGenerated"]) - t) <= timedelta(hours=6)
+                and abs(parse_t(a["TimeGenerated"]) - t) <= timedelta(hours=24)
                 and a["OperationName"] in ("Reset password (by admin)",
                                            "User registered security info")]
         assert not near
-        before = [s for s in default_run["signin"]
-                  if s["UserPrincipalName"] == user and s["ResultType"] == "0"
-                  and timedelta(0) <= t - parse_t(s["TimeGenerated"]) <= timedelta(minutes=30)]
-        assert before
+        earlier = [s for s in default_run["signin"]
+                   if s["UserPrincipalName"] == user and s["ResultType"] == "0"
+                   and timedelta(0) <= t - parse_t(s["TimeGenerated"]) <= timedelta(days=3)]
+        assert earlier
+    assert checked > 0
+
+
+def recovery_timing_features(run):
+    """For each recovery-email change: (is takeover, [3 timing features]). The user's own
+    sign-ins that belong to a hidden case are left out, as a hunter cannot tell them apart."""
+    hidden = {c for case in run["labels"]["takeovers"] + run["labels"]["lookalikes"]
+              for c in case["evidence"]}
+    takeover_ids = {c for case in run["labels"]["takeovers"] for c in case["evidence"]}
+    rows = []
+    for r in run["audit"]:
+        target = r["TargetResources"][0]
+        if not any(m["displayName"] == "OtherMails" for m in target["modifiedProperties"]):
+            continue
+        t = parse_t(r["TimeGenerated"])
+        own = [parse_t(s["TimeGenerated"]) for s in run["signin"]
+               if s["UserPrincipalName"] == target["userPrincipalName"]
+               and s["CorrelationId"] not in hidden]
+        before = [t - x for x in own if x <= t]
+        after = [x - t for x in own if x > t]
+        rows.append((r["CorrelationId"] in takeover_ids, [
+            not before or min(before) > timedelta(minutes=15),  # no sign-in just before
+            not after or min(after) > timedelta(minutes=60),  # no sign-in soon after
+            local(r["TimeGenerated"]).hour >= 20,  # late evening
+        ]))
+    return rows
+
+
+def test_recovery_email_timing_does_not_separate_takeovers_from_ordinary_changes(
+        default_run, several_runs):
+    rows = []
+    for run in [default_run] + [r for _, r in several_runs]:
+        rows += recovery_timing_features(run)
+    takeover = [f for is_tk, f in rows if is_tk]
+    ordinary = [f for is_tk, f in rows if not is_tk]
+    assert len(takeover) >= 10 and len(ordinary) >= 20
+    for i, name in enumerate(("last sign-in over 15 min before", "no sign-in within 60 min after",
+                              "20:00 or later")):
+        tk_share = sum(f[i] for f in takeover) / len(takeover)
+        ord_share = sum(f[i] for f in ordinary) / len(ordinary)
+        if tk_share >= 0.2:
+            assert ord_share >= 0.2, f"{name}: takeover {tk_share:.2f}, ordinary {ord_share:.2f}"
+        if ord_share >= 0.2:
+            assert tk_share > 0, name
+    any_tk = sum(any(f) for f in takeover) / len(takeover)
+    any_ord = sum(any(f) for f in ordinary) / len(ordinary)
+    assert any_ord >= 0.2 and any_ord >= any_tk - 0.3
+
+
+def test_making_a_correlation_id_does_not_touch_the_random_generator_state():
+    spec = importlib.util.spec_from_file_location("generate_2e", GENERATOR)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["generate_2e"] = module  # dataclasses look the module up by name
+    spec.loader.exec_module(module)
+    gen = module.Generator(7, 3, 300, 2, 3, datetime(2026, 9, 14).date())
+    before = gen.rng.getstate()
+    ids = [gen.uuid() for _ in range(3)]
+    assert gen.rng.getstate() == before
+    assert len(set(ids)) == 3 and all(str(uuid.UUID(i)) == i for i in ids)
 
 
 # ---- no tells --------------------------------------------------------------------------
