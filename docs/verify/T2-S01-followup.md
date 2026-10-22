@@ -97,3 +97,65 @@ So both guards are meaningful. `test_ordinary_recovery_changes_...` passes on `m
 FAIL (one cheap in-scope fix): regression, determinism, id derivation, fixtures, AC6-style checks and secrets all PASS, but the benign recovery-email changes add a timing tell (F1: 56/60 takeover vs 0/150 benign) that the builder should remove by widening the benign timing and the matching test. Without that fix, it needs a caveat.
 
 New caveats: F1, if not fixed. Truncated generator outputs in other fields are a theoretical residual only (judgement); no action is needed.
+
+## Fix round 1 re-check (commit `329304f`, 2026-10-22)
+
+The verifier re-ran its own checks independently. Its analysis script and seeds are the same as in round 0: 30 random 128-bit test seeds from `random.Random(20261022)`, counting every sign-in a hunter can see, including hidden-case ones.
+
+**F1 timing tell: fixed, PASS.** Each cell is takeover / benign. The intended clue still separates every row.
+
+| Pattern on an `OtherMails` row | before fix (takeover / benign) | after fix (takeover / benign) |
+|---|---|---|
+| last own sign-in more than 15 min before | 51/60 vs 0/150 | 55/60 vs 138/150 |
+| no own sign-in within 60 min after | 40/60 vs 0/150 | 42/60 vs 109/150 |
+| local time 20:00 or later, or before 08:00 | 25/60 vs 0/150 | 25/60 vs 52/150 |
+| any of the three | 56/60 vs 0/150 | 58/60 vs 146/150 |
+| initiator IP seen at most twice for the user (intended clue) | 60/60 vs 0/150 | 60/60 vs 0/150 |
+
+These numbers agree with the builder's table. The small differences come from the builder's test leaving hidden-case sign-ins out.
+
+**New tells checked: none that point toward a takeover.**
+- **Hours:** takeover changes fall at 11–16h and 19–22h local. Benign changes fall at 8–23h and cover every one of those hours. Hours 8–10 and 23 appear only in benign rows, so they point away from a takeover.
+- **Weekends:** benign 42/150, takeover 2/60. This points away from a takeover. Note for Eojin: "weekday" is a weak hint, not a shortcut.
+- **Helpdesk-done changes:** 30/150, and only benign, as in round 0. They point away from a takeover.
+- **Self-service changes with a sign-in from the same IP in the 4 hours before:** takeover 60/60, benign 59/120. That gives about 50% precision, so it is not a clean separator.
+- **Format and domains:** unchanged and shared by both kinds.
+
+**F2 and F3: fixed, PASS.**
+- `test_making_a_correlation_id_does_not_touch_the_random_generator_state` compares `rng.getstate()` before and after making ids.
+- `test_ordinary_recovery_changes_...` now ends with `assert checked > 0`.
+
+**F4: fixed, PASS.**
+- The README "What Claude did and what Eojin did" section now has an "Eojin decided (2026-10-22)" line covering both decisions.
+- The CAVEATS wording now says "internal state", and a new line records this FAIL and the fix.
+
+**Guard tests against `origin/main`'s generator** (the branch test file copied into a clean `main` worktree): `5 failed, 32 passed`. The 5 failing tests are:
+- `..._not_a_takeover_only_clue`
+- `..._every_property_name_...`
+- `..._have_no_reset_and_no_new_mfa` (`assert 0 > 0`)
+- `..._timing_does_not_separate_...` (`0 >= 20` ordinary rows)
+- `..._does_not_touch_the_random_generator_state` (`rng` state differs)
+
+All five new or changed guards fail on `main`, as they should.
+
+**Regression: PASS.**
+- Branch: `ruff check .` gives `All checks passed!`; `pytest -q` gives `37 passed in 2.75s`.
+- Clean `origin/main` (`0bdcc19`): `All checks passed!` and `31 passed in 1.22s`.
+- Nothing that passed on `main` fails now. The worktree was removed afterwards.
+
+**Fixtures: PASS.**
+- The brief's seed-7 command regenerates `signin.jsonl`, `audit.jsonl` and `expected.json` byte-identically.
+- `expected.json` is unchanged since `bdbf44d`.
+
+**AC6-style checks: PASS.**
+- No tracked `key.json` or `labels.json`; `/tmp/key.json` and `2e-blind-hunt/data/` are absent.
+- `git grep -n -E "pass:[^<\$\"']"` finds only brief or verify text (`T2-C1.md:16`, `T2-S01.md:60`, `verify/T2-S01.md:74`, and this file's own AC6 row).
+- No 22–24-character base64 lines.
+
+**Secrets and fictional data in the round-1 diff: PASS.**
+- No key, token or password values.
+- The only URL is the PR link.
+- Domains are only `mapleharbour.example`, `freemail.example` and `webmail.example`.
+- IP addresses are only from the RFC 5737 documentation ranges.
+
+**Verdict (round 1): PASS.** F1 to F4 are fixed with no regression, and no new tell points toward a takeover. Remaining caveat (judgement): truncated generator outputs in other fields are a theoretical residual only.
