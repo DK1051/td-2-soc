@@ -23,7 +23,8 @@ REQUIRED = [
     "id", "title", "description", "tables", "attack_technique_ids", "al26_010_control",
     "severity", "false_positive_notes", "expected_hits", "expected_quiet",
 ]
-OPTIONAL = {"known_gap"}
+OPTIONAL = {"known_gap", "expected_noise", "expected_noise_reason", "tested_by"}
+SYNTHETIC_TESTS = REPO / "2h-detection-pack" / "tests" / "test_2h_detections_synthetic.py"
 KQL_FILES = sorted(DETECTIONS.glob("*.kql"))
 YAML_FILES = sorted(DETECTIONS.glob("*.yaml"))
 
@@ -65,10 +66,35 @@ def test_header_fields(path):
     for entry in header["attack_technique_ids"]:
         assert entry == "TODO(verify)" or re.fullmatch(r"T\d{4}(\.\d{3})?: \S.*", entry), (
             f"{entry!r}: use exactly TODO(verify), or 'T1234: Exact Technique Name'")
-    assert isinstance(header["expected_hits"], list) and header["expected_hits"]
+    assert isinstance(header["expected_hits"], list)
     assert isinstance(header["expected_quiet"], list)
+    if header.get("tested_by") is not None:
+        assert header["tested_by"] == "synthetic"
+        assert header["id"] in SYNTHETIC_TESTS.read_text(encoding="utf-8"), (
+            "tested_by: synthetic, but the synthetic test file does not mention this detection")
+    if not header["expected_hits"]:
+        assert header.get("tested_by") == "synthetic", (
+            "an empty expected_hits is allowed only with tested_by: synthetic")
     if "known_gap" in header:
         assert isinstance(header["known_gap"], str) and header["known_gap"].strip()
+        caveats = (REPO / "docs" / "CAVEATS.md").read_text(encoding="utf-8").lower()
+        assert any(header["id"].lower() in line and "known gap" in line
+                   for line in caveats.splitlines()), "a known_gap needs a line in docs/CAVEATS.md"
+
+
+@pytest.mark.parametrize("path", YAML_FILES, ids=lambda p: p.stem)
+def test_expected_noise_rules(path):
+    header = load_header(path)
+    noise = header.get("expected_noise")
+    if noise is None:
+        assert "expected_noise_reason" not in header
+        return
+    _, lookalikes = expected_ids()
+    assert isinstance(noise, list) and noise and set(noise) <= lookalikes
+    assert not set(noise) & set(header["expected_hits"]), "noise overlaps expected_hits"
+    assert not set(noise) & set(header["expected_quiet"]), "noise overlaps expected_quiet"
+    reason = header.get("expected_noise_reason")
+    assert isinstance(reason, str) and reason.strip(), "expected_noise needs expected_noise_reason"
 
 
 def test_ids_are_unique():
@@ -98,6 +124,7 @@ def test_check_kql_passes(path):
 
 # --- the checker itself must reject bad queries, otherwise "passes" means nothing -------------
 
+TAIL = "| project UserPrincipalName, TimeGenerated\n"
 GOOD = "AuditLogs\n| project UserPrincipalName, TimeGenerated\n"
 
 
@@ -109,6 +136,17 @@ GOOD = "AuditLogs\n| project UserPrincipalName, TimeGenerated\n"
     (GOOD.replace("TimeGenerated", "Other"), "TimeGenerated"),
     ("AuditLogs\n| project UserPrincipalName, TimeGenerated\n| take 5\n", "project"),
     (GOOD + "\n" * 45, "lines"),
+    ("AuditLogs\n| join kind=inner SecurityEvent on UserPrincipalName\n" + TAIL, "SecurityEvent"),
+    ("AuditLogs\n| join (SecurityEvent | take 1) on UserPrincipalName\n" + TAIL, "SecurityEvent"),
+    ("AuditLogs\n| lookup Other on UserPrincipalName\n" + TAIL, "Other"),
+    ("AuditLogs\n| union SecurityEvent\n| project UserPrincipalName, TimeGenerated\n",
+     "SecurityEvent"),
+    ("AuditLogs\n| union kind=outer SigninLogs, Evil, (AuditLogs | take 1)\n" + TAIL, "Evil"),
+    ("let x = AuditLogs;\nx\n| join kind=leftouter x on UserPrincipalName\n" + TAIL, None),
+    ("cluster('https://x.example').database('d').AuditLogs\n" + TAIL, "cluster"),
+    ("database('other').AuditLogs\n| project UserPrincipalName, TimeGenerated\n", "database"),
+    ("AuditLogs\n| union table('T')\n| project UserPrincipalName, TimeGenerated\n", "table"),
+    ("AuditLogs\n| join externaldata(a:string)['https://x.example/f.csv'] on a\n" + TAIL, "externaldata"),
 ])
 def test_check_kql_catches_problems(text, fragment):
     problems = check_kql.check_text(text)

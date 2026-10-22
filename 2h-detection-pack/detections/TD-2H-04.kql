@@ -1,5 +1,5 @@
-// TD-2H-04: the full chain: reset -> new MFA -> new device -> privileged action, with a score.
-// Operation and app names match the synthetic generator; real Entra spellings are TODO(verify).
+// TD-2H-04: full chain reset -> new MFA -> new device -> privileged action, with a chain_score.
+// Names match the synthetic generator; real Entra spellings are TODO(verify).
 // Stage 1: admin password resets (TargetResources[0] is the person who was reset).
 let resets = AuditLogs | where OperationName == "Reset password (by admin)"
     | project ResetTime = TimeGenerated, UserPrincipalName = tostring(TargetResources[0].userPrincipalName),
@@ -7,8 +7,8 @@ let resets = AuditLogs | where OperationName == "Reset password (by admin)"
 // Stage 2: new MFA method registrations.
 let mfa = AuditLogs | where OperationName == "User registered security info"
     | project MfaTime = TimeGenerated, UserPrincipalName = tostring(TargetResources[0].userPrincipalName);
-// A device's first successful sign-in in the data = the moment the user "got a new device".
-let newdevice = SigninLogs | where ResultType == "0"
+// A device's first successful sign-in in the data = "got a new device"; empty device ids are ignored.
+let newdevice = SigninLogs | where ResultType == "0" and isnotempty(tostring(DeviceDetail.deviceId))
     | summarize DeviceTime = min(TimeGenerated) by UserPrincipalName, DeviceId = tostring(DeviceDetail.deviceId);
 // Privileged actions: role member added, recovery email changed, Core Banking Admin sign-in.
 let privileged = union
@@ -31,8 +31,10 @@ resets
     PrivTime = minif(PrivTime, PrivTime between (ResetTime .. (ResetTime + 48h)))
     by ResetTime, UserPrincipalName, ResetCorrelationId
 // chain_score = number of stages hit (the reset itself counts as 1); alert at 3 or more.
-// Final columns: TimeGenerated is the alert time (the latest stage reached); the rest is evidence.
+// Final columns: TimeGenerated is the alert time = the LATEST stage time (max_of; a missing
+// stage is replaced by the reset time so it cannot hide the others); the rest is evidence.
 | extend chain_score = 1 + toint(isnotnull(MfaTime)) + toint(isnotnull(NewDeviceTime)) + toint(isnotnull(PrivTime))
 | where chain_score >= 3
-| project TimeGenerated = coalesce(PrivTime, NewDeviceTime, MfaTime, ResetTime), UserPrincipalName,
+| project TimeGenerated = max_of(ResetTime, coalesce(MfaTime, ResetTime),
+    coalesce(NewDeviceTime, ResetTime), coalesce(PrivTime, ResetTime)), UserPrincipalName,
     chain_score, ResetTime, MfaTime, NewDeviceTime, PrivTime, ResetCorrelationId

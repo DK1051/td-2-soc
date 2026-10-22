@@ -1,10 +1,10 @@
 id: TD-2H-02
-title: "New MFA method followed by a sign-in from a device or IP never seen in 14 days"
+title: "New MFA method followed by a sign-in from a device never seen in 14 days"
 description: >-
   Finds a successful sign-in within 24 hours after a user registered a new MFA method, where the
-  device id or the IP address was not used by that user in the previous 14 days. An attacker who
-  has just added their own MFA method then signing in from their own machine looks exactly like
-  this.
+  sign-in came from a device id (not empty) that the user did not use in the previous 14 days.
+  An attacker who has just added their own MFA method and then signs in from their own machine
+  looks exactly like this.
 tables:
   - SigninLogs
   - AuditLogs
@@ -13,10 +13,13 @@ attack_technique_ids:
 al26_010_control: "restrict and closely monitor MFA reset, recovery, and device re-enrolment processes"
 severity: high
 false_positive_notes: >-
-  Travel (LA3: Uma Jovanovic signed in from a new country) should stay quiet because it is not
-  preceded by a new MFA method, and a lost-phone case (LA1) should stay quiet because the next
-  sign-in came from the usual laptop and IP. A person who registers a new MFA method and then
-  really does sign in from a new network will trigger it. The fixtures hold only 3 days, so on
-  them an IP address can look new for a normal user simply because it has not appeared yet.
+  A new device is required: a new IP address alone does not alert (it is shown as evidence only),
+  and a sign-in with an empty device id is treated as unknown, not new. An attacker who reuses a
+  device id the user already used would slip past this rule; TD-2H-04 and TD-2H-06 still cover
+  the chain. Travel (LA3: Uma Jovanovic, new country, known devices) stays quiet because no MFA
+  method was added, and a lost-phone case (LA1) stays quiet because the next sign-in came from the
+  usual laptop. A person who registers a new MFA method and then really signs in from a new laptop
+  will trigger it. The fixtures hold only 3 days, so a device can look new simply because it has
+  not appeared yet.
 expected_hits: [TK1, TK2]
 expected_quiet: [LA1, LA2, LA3]

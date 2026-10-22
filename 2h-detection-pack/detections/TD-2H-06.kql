@@ -1,15 +1,16 @@
 // TD-2H-06: MFA change after a reset whose ticket note has no out-of-band verification marker.
 // The marker text and operation names match the synthetic generator; real ones are TODO(verify).
-// Step 1: admin resets whose ticket note (the first changed property) lacks the callback marker.
+// Step 1: admin resets. "Notes" is every changed property of the reset (a list, as JSON text).
 let unverified_resets = AuditLogs
     | where OperationName == "Reset password (by admin)"
-    | extend TicketNote = tostring(TargetResources[0].modifiedProperties[0].newValue)
-    // "contains" ignores upper/lower case; "!" means "does not contain".
-    | where TicketNote !contains "verified: callback to number on file"
+    | extend Notes = tostring(TargetResources[0].modifiedProperties)
+    // The marker counts only as a whole ";"-separated part of a newValue, so "not verified: ..."
+    // does not match. (?i) = ignore case; the pattern is searched in the JSON text of all properties.
+    | where not(Notes matches regex @'(?i)newValue":"([^"]*;)?\s*verified: callback to number on file\s*(;[^"]*)?"')
     | project ResetTime = TimeGenerated,
         UserPrincipalName = tostring(TargetResources[0].userPrincipalName),
         ResetBy = tostring(InitiatedBy.user.userPrincipalName),
-        TicketNote, ResetCorrelationId = CorrelationId;
+        Notes, ResetCorrelationId = CorrelationId;
 // Step 2: MFA method registrations.
 let registrations = AuditLogs
     | where OperationName == "User registered security info"
@@ -23,4 +24,4 @@ unverified_resets
 | where RegisterTime between (ResetTime .. (ResetTime + 24h))
 // Final columns: TimeGenerated is the alert time; the rest is the evidence.
 | project TimeGenerated = RegisterTime, UserPrincipalName, ResetBy, ResetTime,
-    RegisterTime, TicketNote, ResetCorrelationId, MfaCorrelationId
+    RegisterTime, Notes, ResetCorrelationId, MfaCorrelationId

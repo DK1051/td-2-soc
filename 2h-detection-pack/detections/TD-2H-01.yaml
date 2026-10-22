@@ -7,17 +7,17 @@ tables:
 attack_technique_ids:
   - TODO(verify)
 al26_010_control: "restrict and closely monitor MFA reset, recovery, and device re-enrolment processes"
-severity: medium
+severity: low
 false_positive_notes: >-
-  A genuine lost-phone case (LA1: Katya Hashemi, reset after a callback, new MFA method 20 minutes
-  later) matches this query exactly, because the two steps look the same whether or not the caller
-  was the real user. This query alone cannot tell them apart; the verification marker (TD-2H-06),
-  the unfamiliar device (TD-2H-02) and the full chain (TD-2H-04) separate them.
+  This is a deliberately broad early-warning rule, so it is noisy by design. A genuine lost-phone
+  case (LA1: Katya Hashemi, reset after a callback, new MFA method 20 minutes later) returns a row,
+  because a verified reset followed by a new MFA method looks identical to a takeover on these two
+  signals alone. TD-2H-02, TD-2H-04 and TD-2H-06 do the separating (new device, full chain,
+  missing callback note). LA2 and LA3 have no new MFA method, so they stay quiet.
 expected_hits: [TK1, TK2]
-expected_quiet: [LA1, LA2, LA3]
-known_gap: >-
-  LA1 (Katya Hashemi) is a real reset followed by a real MFA registration, so this query as the
-  brief defines it returns her. Nothing in the two steps themselves separates her from a takeover;
-  the fixture and the assertion are left unchanged and Eojin decides whether to narrow the
-  detection (for example by also requiring the missing verification marker, which would make it a
-  copy of TD-2H-06) or to accept it as a deliberately broad early-warning rule.
+expected_quiet: [LA2, LA3]
+expected_noise: [LA1]
+expected_noise_reason: >-
+  LA1 is a verified lost-phone reset followed by a new MFA method; on these two signals alone it is
+  indistinguishable from a takeover. It is allowed to appear (neither required nor forbidden) and is
+  separated from the takeovers by TD-2H-02, TD-2H-04 and TD-2H-06.

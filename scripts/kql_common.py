@@ -13,6 +13,7 @@ import json
 import re
 from pathlib import Path
 
+import yaml
 from azure.kusto.data import KustoClient, KustoConnectionStringBuilder
 
 DATABASE = "mapleharbour"
@@ -74,18 +75,18 @@ def count_lines(path: Path) -> int:
         return sum(1 for line in handle if line.strip())
 
 
-def reset_database(client: KustoClient) -> None:
+def reset_database(client: KustoClient, database: str = DATABASE) -> None:
     """Drop (if present) and re-create the database and both tables, so every run starts empty."""
-    client.execute_mgmt("NetDefaultDB", f".drop database {DATABASE} ifexists")
+    client.execute_mgmt("NetDefaultDB", f".drop database {database} ifexists")
     # TODO(verify): "volatile" (in-memory database) is what the emulator accepted when this
     # harness was written; if a future image refuses it, use the persist form instead.
-    client.execute_mgmt("NetDefaultDB", f".create database {DATABASE} volatile")
+    client.execute_mgmt("NetDefaultDB", f".create database {database} volatile")
     for table, columns in TABLES.items():
         schema = ", ".join(f"{name}:{kind}" for name, kind in columns)
-        client.execute_mgmt(DATABASE, f".create table {table} ({schema})")
+        client.execute_mgmt(database, f".create table {table} ({schema})")
 
 
-def ingest(client: KustoClient, table: str, rows: list[dict]) -> None:
+def ingest(client: KustoClient, table: str, rows: list[dict], database: str = DATABASE) -> None:
     columns = TABLES[table]
     names = {name for name, _ in columns}
     schema = ", ".join(f"{name}:{kind}" for name, kind in columns)
@@ -97,35 +98,50 @@ def ingest(client: KustoClient, table: str, rows: list[dict]) -> None:
                 raise ValueError(f"{table}: unexpected field(s) {sorted(unknown)}")
             lines.append(", ".join(kql_literal(row.get(name), kind) for name, kind in columns))
         body = ",\n".join(lines)
-        client.execute_mgmt(DATABASE, f".set-or-append {table} <|\ndatatable({schema})[\n{body}\n]")
+        client.execute_mgmt(database, f".set-or-append {table} <|\ndatatable({schema})[\n{body}\n]")
 
 
-def table_count(client: KustoClient, table: str) -> int:
-    result = client.execute_query(DATABASE, f"{table} | count")
+def table_count(client: KustoClient, table: str, database: str = DATABASE) -> int:
+    result = client.execute_query(database, f"{table} | count")
     return int(result.primary_results[0][0]["Count"])
 
 
-def load_data(client: KustoClient, data_dir: Path) -> dict[str, int]:
+def load_data(client: KustoClient, data_dir: Path, database: str = DATABASE) -> dict[str, int]:
     """Fresh database + tables, ingest signin.jsonl and audit.jsonl, check the row counts.
     Returns {table: row count}. Raises RuntimeError if a count differs from the file."""
     data_dir = Path(data_dir)
-    reset_database(client)
+    reset_database(client, database)
     counts = {}
     for file_name, table in DATA_FILES.items():
         path = data_dir / file_name
-        ingest(client, table, read_rows(path))
-        expected, actual = count_lines(path), table_count(client, table)
+        ingest(client, table, read_rows(path), database)
+        expected, actual = count_lines(path), table_count(client, table, database)
         if expected != actual:
             raise RuntimeError(f"{table}: file has {expected} rows but the table has {actual}")
         counts[table] = actual
     return counts
 
 
-def run_query(client: KustoClient, text: str) -> list[dict]:
+def load_rows(client: KustoClient, signin: list[dict], audit: list[dict], database: str) -> None:
+    """Same as load_data but from rows already in memory (used by the synthetic test cases)."""
+    reset_database(client, database)
+    for table, rows in (("SigninLogs", signin), ("AuditLogs", audit)):
+        ingest(client, table, rows, database)
+        if table_count(client, table, database) != len(rows):
+            raise RuntimeError(f"{table}: row count differs after ingest")
+
+
+def run_query(client: KustoClient, text: str, database: str = DATABASE) -> list[dict]:
     """Run a KQL query; return the rows as plain dicts."""
-    result = client.execute_query(DATABASE, text)
+    result = client.execute_query(database, text)
     return [row.to_dict() for row in result.primary_results[0]]
 
 
 def detection_ids() -> list[str]:
     return sorted(path.stem for path in DETECTIONS_DIR.glob("*.kql"))
+
+
+def read_detection(detection_id: str) -> tuple[dict, str]:
+    """(YAML header, KQL text) of one detection."""
+    header = yaml.safe_load((DETECTIONS_DIR / f"{detection_id}.yaml").read_text(encoding="utf-8"))
+    return header, (DETECTIONS_DIR / f"{detection_id}.kql").read_text(encoding="utf-8")

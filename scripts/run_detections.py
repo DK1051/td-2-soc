@@ -21,11 +21,20 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
-import yaml
-
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import kql_common
+
+
+def data_dir_allowed(data_dir: Path, repo_root: Path = kql_common.REPO_ROOT) -> bool:
+    """Blind-hunt guard (same rule as the `kql` CI job): the hunt data in 2e-blind-hunt/data may be
+    used only after Eojin has committed 2e-blind-hunt/my-labels.json. Symlinks and `..` are
+    resolved first, so another spelling of the same path is refused too."""
+    hunt = (repo_root / "2e-blind-hunt" / "data").resolve()
+    target = Path(data_dir).resolve()
+    if target == hunt or hunt in target.parents:
+        return (repo_root / "2e-blind-hunt" / "my-labels.json").exists()
+    return True
 
 
 def to_json_value(value):
@@ -66,6 +75,9 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--data", required=True, type=Path, help="folder with signin.jsonl and audit.jsonl")
     parser.add_argument("--out", required=True, type=Path, help="alerts file to write (JSON Lines)")
     args = parser.parse_args(argv)
+    if not data_dir_allowed(args.data):
+        print("refused: 2e-blind-hunt/data is off limits until 2e-blind-hunt/my-labels.json exists")
+        return 2
 
     client = kql_common.connect(args.url)
     counts = kql_common.load_data(client, args.data)
@@ -73,9 +85,8 @@ def main(argv: list[str]) -> int:
 
     alerts = []
     for detection_id in kql_common.detection_ids():
-        header = yaml.safe_load((kql_common.DETECTIONS_DIR / f"{detection_id}.yaml").read_text())
-        rows = kql_common.run_query(
-            client, (kql_common.DETECTIONS_DIR / f"{detection_id}.kql").read_text())
+        header, query = kql_common.read_detection(detection_id)
+        rows = kql_common.run_query(client, query)
         alerts += [build_alert(header, row) for row in rows]
         print(f"{detection_id}: {len(rows)} alert(s)")
 

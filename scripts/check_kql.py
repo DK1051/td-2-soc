@@ -6,7 +6,9 @@
 For every .kql file it checks:
   * brackets () [] {} are balanced and every quote is closed (comments and strings are ignored);
   * the file has at most MAX_LINES lines (the brief's limit, comments included);
-  * every table the query reads is SigninLogs or AuditLogs (or a name made with `let`);
+  * every table the query reads (at the start of a pipeline, or after join, lookup or union) is
+    SigninLogs or AuditLogs (or a name made with `let`);
+  * cluster(), database(), table() and externaldata are not used (no reaching other data);
   * the last statement ends with `| project ...` that includes UserPrincipalName and TimeGenerated.
 These are quick sanity checks, not a KQL parser: the emulator tests prove the queries really run.
 Exit code 0 = all good, 1 = at least one problem. Standard library only.
@@ -21,6 +23,11 @@ from pathlib import Path
 ALLOWED_TABLES = {"SigninLogs", "AuditLogs"}
 REQUIRED_OUTPUT = ("UserPrincipalName", "TimeGenerated")
 MAX_LINES = 40
+BLOCKED = (
+    (re.compile(r"\b(cluster|database|table)\s*\(", re.IGNORECASE), "{0}() is not allowed"),
+    (re.compile(r"\bexternaldata\b", re.IGNORECASE), "externaldata is not allowed"),
+)
+OPTIONS = r"(?:[A-Za-z_]\w*\s*=\s*[A-Za-z_]\w*\s*)*"  # e.g. kind=inner or withsource=Src
 PAIRS = {")": "(", "]": "[", "}": "{"}
 
 
@@ -70,6 +77,41 @@ def sources(clean: str) -> set[str]:
     return found
 
 
+def join_union_names(clean: str) -> set[str]:
+    """Names right after `join`/`lookup` (with options such as kind=inner, or in parentheses)
+    and every item of a `union` list."""
+    found = {
+        match.group(1)
+        for match in re.finditer(
+            rf"\b(?:join|lookup)\b\s*{OPTIONS}\(?\s*([A-Za-z_][\w*]*)", clean)
+    }
+    for match in re.finditer(rf"\bunion\b\s*{OPTIONS}", clean):
+        pos = match.end()
+        while pos < len(clean):
+            while pos < len(clean) and clean[pos].isspace():
+                pos += 1
+            if pos < len(clean) and clean[pos] == "(":  # (name | ...) is found by sources()
+                depth = 0
+                while pos < len(clean):
+                    depth += (clean[pos] == "(") - (clean[pos] == ")")
+                    pos += 1
+                    if depth == 0:
+                        break
+            else:
+                name = re.match(r"[A-Za-z_][\w*]*", clean[pos:])
+                if not name:
+                    break
+                found.add(name.group(0))
+                pos += name.end()
+            while pos < len(clean) and clean[pos].isspace():
+                pos += 1
+            if pos < len(clean) and clean[pos] == ",":
+                pos += 1
+            else:
+                break
+    return found
+
+
 def last_project_columns(clean: str) -> list[str] | None:
     """Output column names of the final `| project ...`, or None if the query does not end
     with a projection."""
@@ -112,8 +154,12 @@ def check_text(text: str) -> list[str]:
     problems += quote_problems + check_brackets(clean)
     if problems:
         return problems
+    for pattern, message in BLOCKED:
+        for match in pattern.finditer(clean):
+            problems.append(message.format(match.group(1) if match.groups() else ""))
     defined = set(re.findall(r"\blet\s+(\w+)\s*=", clean))
-    for name in sorted(sources(clean) - ALLOWED_TABLES - defined):
+    used = sources(clean) | join_union_names(clean)
+    for name in sorted(used - ALLOWED_TABLES - defined - {"union"}):
         problems.append(f"unknown table or name '{name}' (only SigninLogs and AuditLogs allowed)")
     if not (sources(clean) & ALLOWED_TABLES):
         problems.append("query reads neither SigninLogs nor AuditLogs")

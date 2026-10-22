@@ -1,5 +1,6 @@
-// TD-2H-02: new MFA method, then a successful sign-in from a device id or IP address that
-// the user has not used in the previous 14 days. Operation names match the synthetic generator.
+// TD-2H-02: new MFA method, then a successful sign-in from a device id that the user has not
+// used in the previous 14 days. A new IP address alone does not alert; it is only shown as
+// evidence. Operation names match the synthetic generator (real Entra spellings: TODO(verify)).
 // Step 1: MFA method registrations (the person registered a new way to prove who they are).
 let registrations = AuditLogs
     | where OperationName == "User registered security info"
@@ -21,10 +22,11 @@ signins
 // leftouter keeps the sign-in even if the user has no history rows at all.
 | join kind=leftouter history on UserPrincipalName
 // Count earlier sign-ins (within 14 days before this one) that used the same device id / IP.
+// (If the user has no history rows at all, leftouter gives empty values and both counts are 0.)
 | summarize SeenDevice = countif(SeenTime < TimeGenerated and SeenTime >= TimeGenerated - 14d and SeenDeviceId == DeviceId),
     SeenIpCount = countif(SeenTime < TimeGenerated and SeenTime >= TimeGenerated - 14d and SeenIp == IPAddress)
     by TimeGenerated, UserPrincipalName, DeviceId, IPAddress, MfaTime, MfaCorrelationId, SignInCorrelationId
-// Alert when the device id OR the IP address has never been seen in that 14-day look-back.
-| where SeenDevice == 0 or SeenIpCount == 0
-| project TimeGenerated, UserPrincipalName, DeviceId, IPAddress, NewDevice = SeenDevice == 0,
+// Alert only when a NON-EMPTY device id has never been seen in that look-back (empty = unknown).
+| where isnotempty(DeviceId) and SeenDevice == 0
+| project TimeGenerated, UserPrincipalName, DeviceId, IPAddress, NewDevice = true,
     NewIp = SeenIpCount == 0, MfaTime, MfaCorrelationId, SignInCorrelationId
