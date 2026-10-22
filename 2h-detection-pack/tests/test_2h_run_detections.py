@@ -46,3 +46,9 @@ def test_other_folders_always_allowed(tmp_path):
     assert run_detections.data_dir_allowed(tmp_path / "fixtures", tmp_path)
     # a folder that merely starts with the same letters is not the hunt data
     assert run_detections.data_dir_allowed(tmp_path / "2e-blind-hunt" / "data-copy", tmp_path)
+
+
+def test_hunt_data_refused_with_different_letter_case(tmp_path):
+    # Windows and macOS treat 2E-Blind-Hunt/DATA as the same folder, so it is refused too
+    make_repo(tmp_path, with_labels=False)
+    assert not run_detections.data_dir_allowed(tmp_path / "2E-Blind-Hunt" / "DATA", tmp_path)

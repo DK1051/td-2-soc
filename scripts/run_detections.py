@@ -29,10 +29,12 @@ import kql_common
 def data_dir_allowed(data_dir: Path, repo_root: Path = kql_common.REPO_ROOT) -> bool:
     """Blind-hunt guard (same rule as the `kql` CI job): the hunt data in 2e-blind-hunt/data may be
     used only after Eojin has committed 2e-blind-hunt/my-labels.json. Symlinks and `..` are
-    resolved first, so another spelling of the same path is refused too."""
-    hunt = (repo_root / "2e-blind-hunt" / "data").resolve()
+    resolved first, so another spelling of the same path is refused too. The comparison ignores
+    letter case, because Windows and macOS treat 2E-Blind-Hunt/DATA as the same folder."""
+    hunt = str((repo_root / "2e-blind-hunt" / "data").resolve()).casefold()
     target = Path(data_dir).resolve()
-    if target == hunt or hunt in target.parents:
+    candidates = [target, *target.parents]
+    if any(str(p).casefold() == hunt for p in candidates):
         return (repo_root / "2e-blind-hunt" / "my-labels.json").exists()
     return True
 
