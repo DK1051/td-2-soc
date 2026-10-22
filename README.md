@@ -16,7 +16,7 @@ Why this matters: the Canadian Centre for Cyber Security alert AL26-010 (May 1, 
 
 | Project | Status | Session(s) | Verify report | Class transcript |
 |---|---|---|---|---|
-| 2E Blind Hunt | Planned | T2-S01 | `docs/verify/T2-S01.md` (after the session) | `docs/learning/T2-C1.md` |
+| 2E Blind Hunt | In progress (T2-S01; hunt data waits for step 8) | T2-S01 | `docs/verify/T2-S01.md` (after the session) | `docs/learning/T2-C1.md` |
 | 2H Takeover Detection Pack | Planned | T2-S02 | `docs/verify/T2-S02.md` | `docs/learning/T2-C1.md` |
 | 2A Injection-Proof Triage | Planned | T2-S03 | `docs/verify/T2-S03.md` | `docs/learning/T2-C2.md` |
 
