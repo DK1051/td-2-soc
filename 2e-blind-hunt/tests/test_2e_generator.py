@@ -326,6 +326,89 @@ def test_safari_only_runs_on_macos(default_run):
             assert s["DeviceDetail"]["operatingSystem"] == "MacOs"
 
 
+# ---- 128-bit seeds ------------------------------------------------------------------------
+
+BIG_SEED = 2**127 + 123456789012345678901234567
+
+
+def test_a_128_bit_seed_runs_and_is_deterministic(tmp_path):
+    small = ("--days", "3", "--events", "300", "--takeovers", "2", "--lookalikes", "3")
+    first = run_generator(tmp_path / "a", *small, seed=BIG_SEED)
+    second = run_generator(tmp_path / "b", *small, seed=BIG_SEED)
+    other = run_generator(tmp_path / "c", *small, seed=7)
+    for name in ("signin.jsonl", "audit.jsonl", "labels.json"):
+        assert (first / name).read_bytes() == (second / name).read_bytes(), name
+    assert (first / "signin.jsonl").read_bytes() != (other / "signin.jsonl").read_bytes()
+    assert json.loads((first / "labels.json").read_text())["seed"] == BIG_SEED
+
+
+# ---- properties that must not be takeover-only clues ---------------------------------------
+
+
+def recovery_mail_users(run):
+    """(users whose recovery email was changed in a takeover, users where it was not)."""
+    takeover_ids = {c for case in run["labels"]["takeovers"] for c in case["evidence"]}
+    hit, ordinary = set(), set()
+    for r in run["audit"]:
+        for target in r["TargetResources"]:
+            if any(m["displayName"] == "OtherMails" for m in target["modifiedProperties"]):
+                (hit if r["CorrelationId"] in takeover_ids else ordinary).add(
+                    target["userPrincipalName"])
+    return hit, ordinary
+
+
+@pytest.fixture(scope="module")
+def several_runs(tmp_path_factory):
+    runs = []
+    for seed in (1, 99, BIG_SEED, 2**100 + 5):
+        out = run_generator(tmp_path_factory.mktemp(f"seed{seed % 1000}"), seed=seed)
+        signin, audit = read_rows(out / "signin.jsonl"), read_rows(out / "audit.jsonl")
+        labels = json.loads((out / "labels.json").read_text())
+        runs.append((seed, {"signin": signin, "audit": audit, "labels": labels}))
+    return runs
+
+
+def test_recovery_email_changes_are_not_a_takeover_only_clue(default_run, several_runs):
+    for _, run in [("default", default_run)] + several_runs:
+        hit, ordinary = recovery_mail_users(run)
+        assert hit, "expected some takeovers to change a recovery email"
+        assert len(ordinary) >= max(2, len(hit)), (len(hit), len(ordinary))
+        assert not (hit & ordinary)
+
+
+def test_every_property_name_in_a_takeover_row_also_appears_in_ordinary_rows(
+        default_run, several_runs):
+    for _, run in [("default", default_run)] + several_runs:
+        takeover_ids = {c for case in run["labels"]["takeovers"] for c in case["evidence"]}
+        in_takeover, in_ordinary = set(), set()
+        for r in run["audit"]:
+            names = {m["displayName"] for t in r["TargetResources"]
+                     for m in t["modifiedProperties"]}
+            (in_takeover if r["CorrelationId"] in takeover_ids else in_ordinary).update(names)
+        assert in_takeover and in_takeover <= in_ordinary, in_takeover - in_ordinary
+
+
+def test_ordinary_recovery_changes_have_no_reset_and_no_new_mfa(default_run):
+    takeover_ids = {c for case in default_run["labels"]["takeovers"] for c in case["evidence"]}
+    for r in default_run["audit"]:
+        target = r["TargetResources"][0]
+        if r["CorrelationId"] in takeover_ids or not any(
+                m["displayName"] == "OtherMails" for m in target["modifiedProperties"]):
+            continue
+        user = target["userPrincipalName"]
+        t = parse_t(r["TimeGenerated"])
+        near = [a for a in default_run["audit"]
+                if a is not r and a["TargetResources"][0]["userPrincipalName"] == user
+                and abs(parse_t(a["TimeGenerated"]) - t) <= timedelta(hours=6)
+                and a["OperationName"] in ("Reset password (by admin)",
+                                           "User registered security info")]
+        assert not near
+        before = [s for s in default_run["signin"]
+                  if s["UserPrincipalName"] == user and s["ResultType"] == "0"
+                  and timedelta(0) <= t - parse_t(s["TimeGenerated"]) <= timedelta(minutes=30)]
+        assert before
+
+
 # ---- no tells --------------------------------------------------------------------------
 
 

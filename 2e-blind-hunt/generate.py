@@ -16,14 +16,17 @@ Design rules (see the README for the plain-English version):
     normal events, and the data never contains words or ids that give the answer away.
   * Every IP address comes from the documentation ranges reserved by RFC 5737
     (192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24), so none can point at a real machine.
-  * Randomness comes only from random.Random(seed). Correlation ids are derived from that
-    same generator (not uuid4) and there is no clock or set-ordering dependence, so output
-    is reproducible. The "generated" date in the labels is the last local day of the data window.
+  * Randomness comes only from random.Random(seed); the seed may be any integer, including a
+    128-bit one. Correlation ids are derived from the seed with SHA-256 (not uuid4, and not from
+    the random generator's own stream, so the public ids reveal nothing about its internal
+    state). There is no clock or set-ordering dependence, so output is reproducible.
+    The "generated" date in the labels is the last local day of the data window.
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import random
 import re
@@ -58,6 +61,7 @@ OP_REGISTER = "User registered security info"
 OP_ADD_ROLE = "Add member to role"
 OP_ADD_GROUP = "Add member to group"
 OP_UPDATE_USER = "Update user"
+RECOVERY_MAIL_DOMAINS = ["freemail.example", "mailhost.example", "webmail.example"]
 
 FIRST_NAMES = [
     "Amara", "Benoit", "Chantal", "Dmitri", "Elena", "Farid", "Giulia", "Haruto", "Imani",
@@ -270,11 +274,14 @@ class Generator:
         self.takeover_cases: list = []
         self.lookalike_cases: list = []
         self.foreign_choices: list = []
+        self.uuid_counter = 0
 
     # ---- small helpers -------------------------------------------------------------
 
     def uuid(self) -> str:
-        return str(uuid.UUID(int=self.rng.getrandbits(128), version=4))
+        self.uuid_counter += 1
+        digest = hashlib.sha256(f"2e-id:{self.seed}:{self.uuid_counter}".encode()).digest()
+        return str(uuid.UUID(bytes=digest[:16], version=4))
 
     def pick(self, seq):
         return seq[self.rng.randrange(len(seq))]
@@ -441,6 +448,10 @@ class Generator:
                         RESULT_BAD_PASSWORD, REQ_SINGLE)
         return cid
 
+    def recovery_mail(self, p: Person) -> str:
+        domain = self.pick(RECOVERY_MAIL_DOMAINS)
+        return f"{p.first}.{self.rng.randrange(100, 999)}@{domain}".lower()
+
     def register_mfa(self, t, p: Person, ip) -> str:
         return self.audit(t, OP_REGISTER, p, ip, p, [("StrongAuthenticationMethod", None,
                                                        self.mfa_method())])
@@ -507,7 +518,6 @@ class Generator:
         return dev, self.pick(FOREIGN_IP_POOL), loc
 
     def build_takeover(self, index: int) -> Case:
-        rng = self.rng
         # Every reset happens inside the helpdesk agent's working day (weekday, 09:00-16:30), so the
         # hour of a sequence varies through the later steps (b) to (d) instead.
         templates = [
@@ -545,9 +555,8 @@ class Generator:
                              [("Role.DisplayName", None, self.pick(ROLES))])
             tail = "added another account to an administrator role"
         elif kind == "recovery":
-            mail = f"{victim.first}.{rng.randrange(100, 999)}@freemail.example".lower()
             cid = self.audit(t_d, OP_UPDATE_USER, victim, ip, victim,
-                             [("OtherMails", None, mail)])
+                             [("OtherMails", None, self.recovery_mail(victim))])
             tail = "changed the account's recovery email address to an outside mailbox"
         else:
             cid = self.signin(t_d, victim, dev, ip, loc, CORE_APP)
@@ -804,6 +813,29 @@ class Generator:
                 ts = t + self.minutes(5, 50)
                 self.known_signin(ts, p)
 
+    def routine_recovery_changes(self, count: int) -> None:
+        """Ordinary changes of a recovery email address (the same property a hidden sequence
+        changes): half self-service by the user from their usual place, half done by the
+        helpdesk during the working day. Each follows a normal sign-in from a known device and
+        involves no password reset and no new MFA method."""
+        for i in range(count):
+            p = self.take_user(lambda q: q.dept != "helpdesk")
+            if i % 2 == 0:
+                t = self.place(timedelta(hours=1), (8, 20), None)
+                self.known_signin(t - self.minutes(2, 15), p)
+                ip = self.usual_context(p, t)[1]
+                mail = self.recovery_mail(p)
+                self.audit(t, OP_UPDATE_USER, p, ip, p, [("OtherMails", None, mail)])
+            else:
+                t = self.place(timedelta(hours=1), (9, 16.5), True)
+                agent = self.pick(self.helpdesk)
+                self.known_signin(t - self.minutes(3, 20), agent)
+                self.known_signin(t - self.minutes(2, 15), p)
+                ip = self.usual_context(agent, t)[1]
+                mail = self.recovery_mail(p)
+                self.audit(t, OP_UPDATE_USER, agent, ip, p, [("OtherMails", None, mail)])
+            self.known_signin(t + self.minutes(5, 60), p)
+
     def routine_away(self) -> None:
         """Unlabelled travellers and VPN users, one per place in use, so that every place the
         hidden sequences use is also an ordinary place for ordinary people."""
@@ -836,6 +868,7 @@ class Generator:
             self.new_hire_case(p)
         self.routine_resets(min(6, max(1, self.days // 3)))
         self.routine_away()
+        self.routine_recovery_changes(max(2, self.days // 3 + 1))
         hidden_rows = len(self.signin_rows) + len(self.audit_rows)
         n_audit = round(self.events * ROUTINE_AUDIT_SHARE)
         remaining = self.events - hidden_rows - n_audit
