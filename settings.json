@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "nohup docker pull mcr.microsoft.com/azuredataexplorer/kustainer-linux:latest > /tmp/kusto-pull.log 2>&1 &"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,23 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+
+# Secrets and local config — never commit
+*.env
+.env*
+*.pem
+*.key
+secrets/
+.dev/
+
+# Scratch and downloads
+/tmp/
+keycloak-*/
+*.tar.gz
+
+# Decrypted answer key must never land in the repo (see 2e-blind-hunt)
+key.json
+answer-key.json

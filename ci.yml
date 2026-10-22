@@ -1,0 +1,154 @@
+# CI for td-2-soc.
+# - `checks` is REQUIRED by the branch ruleset (do not rename it): lint, tests, secret scan.
+# - `kql` runs the detection tests against the Kusto emulator. It only runs on pull requests
+#   that touch 2h-detection-pack/ or fixtures/ (decided by the tiny `kql-paths` job, so the
+#   multi-GB emulator image is not pulled on every PR), or when Eojin starts the workflow by
+#   hand from the Actions tab (workflow_dispatch) — the fallback path when a cloud session
+#   cannot run the emulator. It is NOT required by the ruleset.
+# Never put secrets in this file. GITHUB_TOKEN below is the automatic per-run token.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# gitleaks reads the pull request's commits and comments on a leak
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          else
+            echo "no requirements.txt"
+          fi
+
+      - name: Lint (ruff)
+        run: ruff check .
+
+      - name: Tests (pytest; exit code 5 = no tests collected, which is fine early on)
+        run: pytest -q || [ $? -eq 5 ]
+
+      - name: Secret scan (gitleaks)
+        uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  kql-paths:
+    # Decides whether the emulator job is needed: always for a manual run, and for a
+    # pull request only when 2h-detection-pack/ or fixtures/ changed.
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.filter.outputs.run }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - id: filter
+        name: Did 2h-detection-pack/ or fixtures/ change?
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "Manual run: emulator job requested."
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          changed="$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")"
+          echo "Changed files:"
+          echo "$changed"
+          if echo "$changed" | grep -Eq '^(2h-detection-pack/|fixtures/)'; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  kql:
+    needs: kql-paths
+    if: needs.kql-paths.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    services:
+      kusto:
+        image: mcr.microsoft.com/azuredataexplorer/kustainer-linux:latest
+        env:
+          ACCEPT_EULA: "Y"
+        ports:
+          - 9000:8080
+        options: --memory 4g
+    env:
+      # The harness (built in T2-S02) reads these: where the emulator is, and that
+      # "emulator unreachable" must FAIL here instead of skipping the tests.
+      KUSTO_URL: http://localhost:9000
+      KUSTO_REQUIRED: "1"
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Wait for the Kusto emulator (readiness loop, up to 5 minutes)
+        run: |
+          for i in $(seq 1 60); do
+            code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 \
+              -X POST -H 'Content-Type: application/json' \
+              -d '{"csl":".show cluster"}' "$KUSTO_URL/v1/rest/mgmt" || true)"
+            if [ "$code" = "200" ]; then
+              echo "emulator ready after $i tries"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "emulator did not become ready in 5 minutes"
+          exit 1
+
+      - name: Detection tests against the emulator
+        run: |
+          if [ -d 2h-detection-pack/tests ]; then
+            pytest -q 2h-detection-pack/tests
+          else
+            echo "No 2h-detection-pack/tests yet (it is built in session T2-S02); nothing to run."
+          fi
+
+      - name: Run all detections over the full 2E data (only once the blind hunt is over)
+        # Guard: this must not exist before Eojin has committed his blind labels, or the
+        # artifact would leak the hunt's answers to him. The script is built in T2-S02.
+        run: |
+          if [ -f scripts/run_detections.py ] && [ -f 2e-blind-hunt/my-labels.json ]; then
+            mkdir -p out
+            python scripts/run_detections.py --url "$KUSTO_URL" --data 2e-blind-hunt/data --out out/alerts.jsonl
+          else
+            echo "Skipped: scripts/run_detections.py or 2e-blind-hunt/my-labels.json not present."
+          fi
+
+      - name: Upload alerts (fallback path for a cloud session that cannot run the emulator)
+        uses: actions/upload-artifact@v6
+        with:
+          name: alerts-full-2e-data
+          path: out/alerts.jsonl
+          if-no-files-found: ignore
