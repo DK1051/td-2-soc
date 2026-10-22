@@ -1,0 +1,22 @@
+id: TD-2H-05
+title: "Unusual number of admin password resets by one helpdesk account in a day"
+description: >-
+  Counts admin password resets per helpdesk account per UTC day and alerts when a day has at least
+  3 resets and more than that account's own average for the previous 14 days plus 2. A burst of
+  resets from one account can be the start of an attacker campaign or of a compromised helpdesk
+  account.
+tables:
+  - AuditLogs
+attack_technique_ids:
+  - TODO(verify)
+al26_010_control: "restrict and closely monitor MFA reset, recovery, and device re-enrolment processes"
+severity: medium
+false_positive_notes: >-
+  The limit (more than the account's own 14-day daily average plus 2, and at least 3 that day) is
+  a planning value, not a measured one. A genuinely busy day, such as an office-wide password
+  expiry, would trigger it. It returns one row per reset in the burst, so benign resets in the
+  same burst appear too (liam.dubois in the fixtures); in the fixtures one helpdesk account
+  happens to do three resets on 15 September, which is why TK1 and TK2 appear. It does not fire
+  for LA1 to LA3 because each of those resets was a single reset by an agent that day.
+expected_hits: [TK1, TK2]
+expected_quiet: [LA1, LA2, LA3]

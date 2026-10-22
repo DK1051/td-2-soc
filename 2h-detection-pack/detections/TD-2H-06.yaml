@@ -1,0 +1,20 @@
+id: TD-2H-06
+title: "MFA method change after a reset whose ticket has no callback verification"
+description: >-
+  Finds users who registered a new MFA method within 24 hours after an admin password reset whose
+  ticket note does not contain the text 'verified: callback to number on file'. That text records
+  that the helpdesk called the user back on a number already on file, which is the out-of-band
+  check that stops a stranger on the phone from getting a reset.
+tables:
+  - AuditLogs
+attack_technique_ids:
+  - TODO(verify)
+al26_010_control: '"out-of-band verification" (the AL26-010 control name as written in the T2-S02 brief; TODO(verify) the exact wording against the alert text)'
+severity: high
+false_positive_notes: >-
+  A lost-phone case where the agent did the callback and wrote the marker (LA1) stays quiet. A
+  genuine reset where the agent forgot to write the marker and the user then added a new MFA
+  method would trigger it, which is a process failure worth reviewing anyway. A reset without the
+  marker and without a new MFA method (LA2) stays quiet. The marker text is matched case-insensitively and must be exactly the agreed wording.
+expected_hits: [TK1, TK2]
+expected_quiet: [LA1, LA2, LA3]

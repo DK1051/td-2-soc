@@ -1,0 +1,23 @@
+id: TD-2H-01
+title: "Admin password reset followed by a new MFA method within 24 hours"
+description: >-
+  Finds users whose password was reset by an administrator and who then registered a new multi-factor authentication (MFA) method within 24 hours. This is the first two steps of the helpdesk-reset takeover chain, so it is a broad early warning rather than a verdict.
+tables:
+  - AuditLogs
+attack_technique_ids:
+  - TODO(verify)
+al26_010_control: "restrict and closely monitor MFA reset, recovery, and device re-enrolment processes"
+severity: medium
+false_positive_notes: >-
+  A genuine lost-phone case (LA1: Katya Hashemi, reset after a callback, new MFA method 20 minutes
+  later) matches this query exactly, because the two steps look the same whether or not the caller
+  was the real user. This query alone cannot tell them apart; the verification marker (TD-2H-06),
+  the unfamiliar device (TD-2H-02) and the full chain (TD-2H-04) separate them.
+expected_hits: [TK1, TK2]
+expected_quiet: [LA1, LA2, LA3]
+known_gap: >-
+  LA1 (Katya Hashemi) is a real reset followed by a real MFA registration, so this query as the
+  brief defines it returns her. Nothing in the two steps themselves separates her from a takeover;
+  the fixture and the assertion are left unchanged and Eojin decides whether to narrow the
+  detection (for example by also requiring the missing verification marker, which would make it a
+  copy of TD-2H-06) or to accept it as a deliberately broad early-warning rule.

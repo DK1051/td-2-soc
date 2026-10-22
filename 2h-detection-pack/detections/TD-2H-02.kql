@@ -1,0 +1,30 @@
+// TD-2H-02: new MFA method, then a successful sign-in from a device id or IP address that
+// the user has not used in the previous 14 days. Operation names match the synthetic generator.
+// Step 1: MFA method registrations (the person registered a new way to prove who they are).
+let registrations = AuditLogs
+    | where OperationName == "User registered security info"
+    | project MfaTime = TimeGenerated,
+        UserPrincipalName = tostring(TargetResources[0].userPrincipalName),
+        MfaCorrelationId = CorrelationId;
+// Step 2: successful sign-ins (ResultType "0"), with the device id pulled out of the
+// DeviceDetail object (a "dynamic" column that holds nested fields).
+let signins = SigninLogs
+    | where ResultType == "0"
+    | extend DeviceId = tostring(DeviceDetail.deviceId), SignInCorrelationId = CorrelationId;
+// Step 3: the same sign-ins renamed, to be used as each user's "already seen" history.
+let history = signins
+    | project UserPrincipalName, SeenTime = TimeGenerated, SeenDeviceId = DeviceId, SeenIp = IPAddress;
+signins
+// Keep only sign-ins in the 24 hours after the user registered an MFA method (planning value).
+| join kind=inner registrations on UserPrincipalName
+| where TimeGenerated between (MfaTime .. (MfaTime + 24h))
+// leftouter keeps the sign-in even if the user has no history rows at all.
+| join kind=leftouter history on UserPrincipalName
+// Count earlier sign-ins (within 14 days before this one) that used the same device id / IP.
+| summarize SeenDevice = countif(SeenTime < TimeGenerated and SeenTime >= TimeGenerated - 14d and SeenDeviceId == DeviceId),
+    SeenIpCount = countif(SeenTime < TimeGenerated and SeenTime >= TimeGenerated - 14d and SeenIp == IPAddress)
+    by TimeGenerated, UserPrincipalName, DeviceId, IPAddress, MfaTime, MfaCorrelationId, SignInCorrelationId
+// Alert when the device id OR the IP address has never been seen in that 14-day look-back.
+| where SeenDevice == 0 or SeenIpCount == 0
+| project TimeGenerated, UserPrincipalName, DeviceId, IPAddress, NewDevice = SeenDevice == 0,
+    NewIp = SeenIpCount == 0, MfaTime, MfaCorrelationId, SignInCorrelationId

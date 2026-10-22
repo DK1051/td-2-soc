@@ -1,0 +1,38 @@
+// TD-2H-04: the full chain: reset -> new MFA -> new device -> privileged action, with a score.
+// Operation and app names match the synthetic generator; real Entra spellings are TODO(verify).
+// Stage 1: admin password resets (TargetResources[0] is the person who was reset).
+let resets = AuditLogs | where OperationName == "Reset password (by admin)"
+    | project ResetTime = TimeGenerated, UserPrincipalName = tostring(TargetResources[0].userPrincipalName),
+        ResetCorrelationId = CorrelationId;
+// Stage 2: new MFA method registrations.
+let mfa = AuditLogs | where OperationName == "User registered security info"
+    | project MfaTime = TimeGenerated, UserPrincipalName = tostring(TargetResources[0].userPrincipalName);
+// A device's first successful sign-in in the data = the moment the user "got a new device".
+let newdevice = SigninLogs | where ResultType == "0"
+    | summarize DeviceTime = min(TimeGenerated) by UserPrincipalName, DeviceId = tostring(DeviceDetail.deviceId);
+// Privileged actions: role member added, recovery email changed, Core Banking Admin sign-in.
+let privileged = union
+    (AuditLogs | where OperationName == "Add member to role"
+        | project PrivTime = TimeGenerated, UserPrincipalName = tostring(InitiatedBy.user.userPrincipalName)),
+    (AuditLogs | where OperationName == "Update user" and tostring(TargetResources[0].modifiedProperties[0].displayName) == "OtherMails"
+        | project PrivTime = TimeGenerated, UserPrincipalName = tostring(TargetResources[0].userPrincipalName)),
+    (SigninLogs | where AppDisplayName == "Core Banking Admin" and ResultType == "0"
+        | project PrivTime = TimeGenerated, UserPrincipalName);
+// Chain the stages together user by user.
+resets
+// leftouter joins keep each reset even when a later stage never happened.
+| join kind=leftouter mfa on UserPrincipalName
+| join kind=leftouter newdevice on UserPrincipalName
+| join kind=leftouter privileged on UserPrincipalName
+// minif = earliest time that satisfies the window: MFA <= 24h after the reset, new device
+// <= 24h after that MFA, privileged action <= 48h after the reset (planning values).
+| summarize MfaTime = minif(MfaTime, MfaTime between (ResetTime .. (ResetTime + 24h))),
+    NewDeviceTime = minif(DeviceTime, MfaTime between (ResetTime .. (ResetTime + 24h)) and DeviceTime between (MfaTime .. (MfaTime + 24h))),
+    PrivTime = minif(PrivTime, PrivTime between (ResetTime .. (ResetTime + 48h)))
+    by ResetTime, UserPrincipalName, ResetCorrelationId
+// chain_score = number of stages hit (the reset itself counts as 1); alert at 3 or more.
+// Final columns: TimeGenerated is the alert time (the latest stage reached); the rest is evidence.
+| extend chain_score = 1 + toint(isnotnull(MfaTime)) + toint(isnotnull(NewDeviceTime)) + toint(isnotnull(PrivTime))
+| where chain_score >= 3
+| project TimeGenerated = coalesce(PrivTime, NewDeviceTime, MfaTime, ResetTime), UserPrincipalName,
+    chain_score, ResetTime, MfaTime, NewDeviceTime, PrivTime, ResetCorrelationId

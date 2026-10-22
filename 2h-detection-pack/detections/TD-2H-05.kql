@@ -1,0 +1,22 @@
+// TD-2H-05: one helpdesk account doing unusually many admin resets in one UTC day.
+// Operation names match the synthetic generator; real Entra spellings are TODO(verify).
+// Step 1: every admin reset, with the helpdesk account that did it (Agent) and the UTC day.
+let resets = AuditLogs
+    | where OperationName == "Reset password (by admin)"
+    | project ResetTime = TimeGenerated, Agent = tostring(InitiatedBy.user.userPrincipalName),
+        UserPrincipalName = tostring(TargetResources[0].userPrincipalName),
+        ResetCorrelationId = CorrelationId, Day = startofday(TimeGenerated);
+// Step 2: how many resets each agent did on each day.
+let daily = resets | summarize ResetsToday = count() by Agent, Day;
+daily
+// Pair every agent-day with that same agent's other days (leftouter keeps lone days).
+| join kind=leftouter (daily | project Agent, PriorDay = Day, PriorCount = ResetsToday) on Agent
+// Add up the resets in the 14 days BEFORE each day; divide by 14 for the daily average.
+| summarize PriorTotal = sumif(PriorCount, PriorDay >= Day - 14d and PriorDay < Day) by Agent, Day, ResetsToday
+| extend DailyAverage14d = PriorTotal / 14.0
+// Planning-value threshold: more than the agent's own average + 2, and at least 3 that day.
+| where ResetsToday >= 3 and ResetsToday > DailyAverage14d + 2
+// Go back to the individual resets of that agent-day so each affected user gets a row.
+| join kind=inner resets on Agent, Day
+| project TimeGenerated = ResetTime, UserPrincipalName, Agent, ResetsToday, DailyAverage14d,
+    ResetCorrelationId
