@@ -160,7 +160,8 @@ def test_labels_have_five_takeovers_and_enough_lookalikes(default_run):
     labels = default_run["labels"]
     assert set(labels) == {"seed", "generated", "takeovers", "lookalikes"}
     assert labels["seed"] == TEST_SEED
-    datetime.strptime(labels["generated"], "%Y-%m-%d")
+    # "generated" is the last local day of the window: 2026-09-14 plus 13 days
+    assert labels["generated"] == "2026-09-27"
     assert len(labels["takeovers"]) == 5
     assert len(labels["lookalikes"]) >= 8
     assert [t["id"] for t in labels["takeovers"]] == [f"TK{i}" for i in range(1, 6)]
@@ -236,6 +237,93 @@ def test_lookalikes_cover_the_named_kinds_and_the_marker_alone_never_decides(def
             if rows[0]["DeviceDetail"]["deviceId"] in elsewhere:
                 foreign_known += 1
     assert foreign_known >= 2
+
+
+# ---- structural no-tells: hidden cases must not differ from normal life in these ways -------
+
+
+def local(text: str) -> datetime:
+    return parse_t(text) - timedelta(hours=4)
+
+
+def admin_resets(run):
+    return [r for r in run["audit"] if r["OperationName"] == "Reset password (by admin)"]
+
+
+def test_every_admin_reset_is_in_business_hours_after_an_agent_sign_in(default_run):
+    resets = admin_resets(default_run)
+    assert len(resets) >= 14  # 5 hidden + look-alikes + unlabelled routine resets
+    for r in resets:
+        when = local(r["TimeGenerated"])
+        assert when.weekday() < 5 and 8.5 <= when.hour + when.minute / 60 < 17.5, when
+        agent = r["InitiatedBy"]["user"]["userPrincipalName"]
+        earlier = [s for s in default_run["signin"]
+                   if s["UserPrincipalName"] == agent and s["ResultType"] == "0"
+                   and timedelta(0) <= parse_t(r["TimeGenerated"]) - parse_t(s["TimeGenerated"])
+                   <= timedelta(minutes=30)]
+        assert earlier, f"no agent sign-in in the 30 minutes before the reset at {when}"
+        assert r["InitiatedBy"]["user"]["ipAddress"] in {s["IPAddress"] for s in earlier}
+
+
+def test_every_admin_reset_is_followed_by_a_wrong_password_from_the_known_device(default_run):
+    for r in admin_resets(default_run):
+        user = r["TargetResources"][0]["userPrincipalName"]
+        after = [s for s in default_run["signin"]
+                 if s["UserPrincipalName"] == user and s["ResultType"] == "50126"
+                 and timedelta(0) < parse_t(s["TimeGenerated"]) - parse_t(r["TimeGenerated"])
+                 <= timedelta(minutes=25)]
+        assert after
+
+
+def test_some_resets_are_ordinary_and_unlabelled_with_and_without_the_marker(default_run):
+    labelled = {c for case in default_run["labels"]["takeovers"] + default_run["labels"]["lookalikes"]
+                for c in case["evidence"]}
+    plain = [r for r in admin_resets(default_run) if r["CorrelationId"] not in labelled]
+    assert 3 <= len(plain) <= 6
+    markers = [MARKER in json.dumps(r) for r in plain]
+    assert any(markers) and not all(markers)
+
+
+def test_takeover_countries_are_also_ordinary_travel_countries(default_run):
+    takeover_ids = {c for case in default_run["labels"]["takeovers"] for c in case["evidence"]}
+    takeover_countries = {default_run["by_id"][c]["Location"]["countryOrRegion"]
+                          for case in default_run["labels"]["takeovers"]
+                          for c in case["evidence"] if "Location" in default_run["by_id"][c]}
+    other_foreign = {s["Location"]["countryOrRegion"] for s in default_run["signin"]
+                     if s["CorrelationId"] not in takeover_ids
+                     and s["Location"]["countryOrRegion"] != "CA"}
+    assert takeover_countries and takeover_countries <= other_foreign
+
+
+def test_a_laptop_is_never_in_canada_while_its_user_is_travelling_or_on_a_vpn(default_run):
+    takeover_ids = {c for case in default_run["labels"]["takeovers"] for c in case["evidence"]}
+    foreign_by_user: dict = {}
+    for s in default_run["signin"]:
+        if s["CorrelationId"] not in takeover_ids and s["Location"]["countryOrRegion"] != "CA":
+            foreign_by_user.setdefault(s["UserPrincipalName"], []).append(s["TimeGenerated"])
+    assert len(foreign_by_user) >= 6  # the two labelled cases plus the unlabelled travellers
+    for user, times in foreign_by_user.items():
+        first, last = min(times), max(times)
+        inside_canada = [s for s in default_run["signin"]
+                         if s["UserPrincipalName"] == user and first <= s["TimeGenerated"] <= last
+                         and s["Location"]["countryOrRegion"] == "CA"
+                         and s["CorrelationId"] not in takeover_ids]
+        assert not inside_canada, f"{user} signs in from Canada while away"
+
+
+def test_personal_computers_are_common_among_ordinary_staff(default_run):
+    takeover_ids = {c for case in default_run["labels"]["takeovers"] for c in case["evidence"]}
+    users = {s["UserPrincipalName"] for s in default_run["signin"]}
+    personal = {s["UserPrincipalName"] for s in default_run["signin"]
+                if s["CorrelationId"] not in takeover_ids
+                and s["DeviceDetail"]["displayName"].startswith("DESKTOP-")}
+    assert len(personal) / len(users) >= 0.2
+
+
+def test_safari_only_runs_on_macos(default_run):
+    for s in default_run["signin"]:
+        if s["DeviceDetail"]["browser"] == "Safari":
+            assert s["DeviceDetail"]["operatingSystem"] == "MacOs"
 
 
 # ---- no tells --------------------------------------------------------------------------
@@ -365,3 +453,14 @@ def test_scorer_output_names_only_ids_and_users(default_run, tmp_path):
         assert case["summary"] not in out
         assert not (set(case["evidence"]) & set(out.split()))
         assert case["start"] not in out
+
+
+def test_untouched_template_entries_do_not_lower_precision(default_run):
+    scorer = load_scorer()
+    key = default_run["labels"]
+    template_entry = {"id": "", "user": "", "start": "", "end": "", "evidence": [], "summary": ""}
+    real = dict(key["takeovers"][0])
+    only_template = scorer.score({"takeovers": [template_entry]}, key)
+    assert only_template["n_labels"] == 0 and only_template["precision"] == 0.0
+    mixed = scorer.score({"takeovers": [real, template_entry]}, key)
+    assert mixed["n_labels"] == 1 and mixed["precision"] == 1.0 and mixed["recall"] == 0.2

@@ -18,7 +18,7 @@ Design rules (see the README for the plain-English version):
     (192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24), so none can point at a real machine.
   * Randomness comes only from random.Random(seed). Correlation ids are derived from that
     same generator (not uuid4) and there is no clock or set-ordering dependence, so output
-    is reproducible. The "generated" date in the labels is the last day of the data window.
+    is reproducible. The "generated" date in the labels is the last local day of the data window.
 """
 
 from __future__ import annotations
@@ -111,24 +111,24 @@ REMOTE_LOCS = [
     ("Winnipeg", "Manitoba", "CA"),
     ("Calgary", "Alberta", "CA"),
 ]
-TRAVEL_LOCS = [
+# One shared pool of places outside Canada. Travellers, VPN users and the hidden sequences all
+# draw from the same few places (Generator.foreign_choices), so a country alone decides nothing.
+FOREIGN_LOCS = [
     ("Orlando", "Florida", "US"),
     ("Mexico City", "Ciudad de Mexico", "MX"),
     ("London", "England", "GB"),
     ("Phoenix", "Arizona", "US"),
-]
-VPN_LOCS = [
     ("Amsterdam", "North Holland", "NL"),
     ("Chicago", "Illinois", "US"),
-    ("London", "England", "GB"),
-]
-OUTSIDE_LOCS = [  # sign-in places outside Canada used by the hidden takeover sequences
     ("Bucharest", "Bucuresti", "RO"),
     ("Lagos", "Lagos", "NG"),
     ("Sao Paulo", "Sao Paulo", "BR"),
     ("Hanoi", "Hanoi", "VN"),
-    ("Chicago", "Illinois", "US"),
+    ("Paris", "Ile-de-France", "FR"),
+    ("Singapore", "Singapore", "SG"),
 ]
+N_FOREIGN_CHOICES = 4  # how many of those places are in use in one dataset
+PERSONAL_DEVICE_SHARE = 0.3  # share of staff who also sign in from a personal computer
 
 HOME_IP_POOL = [f"203.0.113.{i}" for i in range(100, 200)]
 REMOTE_IP_POOL = [f"192.0.2.{i}" for i in range(10, 100)]
@@ -154,7 +154,7 @@ ENTRA_ADMIN_APP = "Microsoft Entra admin center"
 OS_POOL = ["Windows 11"] * 5 + ["Windows 10"] * 2 + ["MacOs"]
 BROWSER_POOL = ["Edge"] * 4 + ["Chrome"] * 3 + ["Firefox"]
 PERSONAL_OS_POOL = ["Windows 11", "Windows 10", "MacOs"]
-PERSONAL_BROWSER_POOL = ["Chrome", "Firefox", "Edge", "Safari"]
+PERSONAL_BROWSER_POOL = ["Chrome", "Firefox", "Edge"]  # Safari is added for MacOs only
 TRUST_MANAGED = ["Hybrid Azure AD joined", "Azure AD joined"]
 TRUST_PERSONAL = ["Azure AD registered", ""]
 
@@ -210,6 +210,7 @@ class Person:
     apps: list
     volume: float
     active_from: datetime | None = None
+    away: list = field(default_factory=list)  # (start, end, location, ip): travelling or on VPN
 
     @property
     def privileged(self) -> bool:
@@ -268,7 +269,7 @@ class Generator:
         self.free_pool: list = []
         self.takeover_cases: list = []
         self.lookalike_cases: list = []
-        self.hire_cases: list = []
+        self.foreign_choices: list = []
 
     # ---- small helpers -------------------------------------------------------------
 
@@ -315,8 +316,9 @@ class Generator:
             name = "DESKTOP-" + "".join(self.pick(letters) for _ in range(7))
             if not re.search(r"(?i)(tk|la)\d", name):  # keep the no-tells rule trivially true
                 break
-        return Device(self.uuid(), name, self.pick(PERSONAL_OS_POOL),
-                      self.pick(PERSONAL_BROWSER_POOL), self.pick(TRUST_PERSONAL))
+        os_name = self.pick(PERSONAL_OS_POOL)
+        browsers = PERSONAL_BROWSER_POOL + (["Safari"] if os_name == "MacOs" else [])
+        return Device(self.uuid(), name, os_name, self.pick(browsers), self.pick(TRUST_PERSONAL))
 
     def build_people(self) -> None:
         rng = self.rng
@@ -338,6 +340,8 @@ class Generator:
         remote_by_idx = dict(zip(sorted(remote_idx), REMOTE_LOCS, strict=True))
         gta_homes = rng.sample(HOME_IP_POOL, len(STAFF_PLAN))
         remote_homes = rng.sample(REMOTE_IP_POOL, len(REMOTE_LOCS))
+        personal_idx = set(rng.sample(range(len(STAFF_PLAN)),
+                                      round(PERSONAL_DEVICE_SHARE * len(STAFF_PLAN))))
         branch_count = 0
         remote_count = 0
         for i, (dept, title) in enumerate(STAFF_PLAN):
@@ -363,7 +367,7 @@ class Generator:
                 loc=loc, office_ip=office_ip, home_ip=home_ip, remote=remote,
                 laptop=self.make_device("laptop"),
                 mobile=self.make_device("mobile", first) if rng.random() < 0.5 else None,
-                personal=self.make_device("personal") if rng.random() < 0.1 else None,
+                personal=self.make_device("personal") if i in personal_idx else None,
                 apps=apps, volume=volume,
             )
             self.people.append(person)
@@ -373,12 +377,12 @@ class Generator:
         rng.shuffle(self.free_pool)
 
     def take_user(self, predicate) -> Person:
-        """Take a not-yet-used person matching predicate (falls back to anyone non-helpdesk)."""
+        """Take a not-yet-used person matching predicate (falls back to any unused non-helpdesk)."""
         for fallback in (predicate, lambda p: p.dept != "helpdesk"):
             for i, p in enumerate(self.free_pool):
                 if fallback(p):
                     return self.free_pool.pop(i)
-        return self.pick([p for p in self.people if p.dept != "helpdesk"])
+        raise SystemExit("not enough staff for that many separate cases; lower the case counts")
 
     # ---- row builders ----------------------------------------------------------------
 
@@ -422,9 +426,20 @@ class Generator:
         return self.pick(MFA_METHODS).format(xx=f"{self.rng.randrange(100):02d}")
 
     def reset_by_helpdesk(self, t, victim: Person, verified: bool) -> str:
+        """An admin password reset. Every reset, hidden or not, is built the same way: inside the
+        agent's working day, from the agent's usual address, after a normal agent sign-in, and
+        followed by the user trying the old password once or twice."""
         agent = self.pick(self.helpdesk)
-        return self.audit(t, OP_RESET_ADMIN, agent, agent.office_ip, victim,
-                          [("TicketNote", None, self.note(verified))])
+        self.known_signin(t - self.minutes(3, 20), agent)
+        ip = self.usual_context(agent, t)[1]
+        cid = self.audit(t, OP_RESET_ADMIN, agent, ip, victim,
+                         [("TicketNote", None, self.note(verified))])
+        for _ in range(self.rng.randrange(1, 3)):
+            tf = t + self.minutes(1, 25)
+            dev, uip, uloc = self.usual_context(victim, tf)
+            self.signin(tf, victim, dev, uip, uloc, self.pick(victim.apps),
+                        RESULT_BAD_PASSWORD, REQ_SINGLE)
+        return cid
 
     def register_mfa(self, t, p: Person, ip) -> str:
         return self.audit(t, OP_REGISTER, p, ip, p, [("StrongAuthenticationMethod", None,
@@ -432,10 +447,32 @@ class Generator:
 
     def usual_context(self, p: Person, t):
         """Where and how this person normally signs in at time t (known device, usual IP)."""
+        away = self.away_at(p, t)
+        if away:
+            return p.laptop, away[1], away[0]
         local = self.local_of(t)
         at_work = local.weekday() < 5 and 8 <= local.hour < 18
         ip = p.office_ip if (at_work or p.remote) else p.home_ip
         return p.laptop, ip, p.loc
+
+    @staticmethod
+    def away_at(p: Person, t):
+        """(location, ip) if p is travelling or on a VPN at time t, else None."""
+        for start, end, loc, ip in p.away:
+            if start <= t <= end:
+                return loc, ip
+        return None
+
+    def away_spell(self, p: Person, t, span, loc, ip, n_events) -> list:
+        """Mark p as away from t to t+span (every sign-in then comes from loc/ip) and write
+        n_events explicit sign-ins from the usual laptop inside that window."""
+        p.away.append((t, t + span, loc, ip))
+        events = []
+        for offset in sorted(self.rng.randrange(0, int(span.total_seconds()))
+                             for _ in range(n_events)):
+            ts = t + timedelta(seconds=offset)
+            events.append((ts, self.signin(ts, p, p.laptop, ip, loc, self.pick(p.apps))))
+        return events
 
     def known_signin(self, t, p: Person, req=REQ_MULTI) -> str:
         dev, ip, loc = self.usual_context(p, t)
@@ -460,37 +497,41 @@ class Generator:
 
     # ---- hidden takeover sequences -------------------------------------------------
 
-    def attacker_context(self, index: int):
-        loc = OUTSIDE_LOCS[index % len(OUTSIDE_LOCS)]
-        dev = self.make_device("personal")
-        ip = self.pick(FOREIGN_IP_POOL)
-        return dev, ip, loc
+    def unfamiliar_context(self, victim: Person):
+        """A device, address and place never seen for this person. Same pools as travellers."""
+        loc = self.pick(self.foreign_choices)
+        if self.rng.random() < 0.4:
+            dev = self.make_device("mobile", victim.first)
+        else:
+            dev = self.make_device("personal")
+        return dev, self.pick(FOREIGN_IP_POOL), loc
 
     def build_takeover(self, index: int) -> Case:
         rng = self.rng
+        # Every reset happens inside the helpdesk agent's working day (weekday, 09:00-16:30), so the
+        # hour of a sequence varies through the later steps (b) to (d) instead.
         templates = [
-            {"pick": lambda p: p.title == "Finance Clerk", "hours": (10, 15), "weekday": True,
+            {"pick": lambda p: p.title == "Finance Clerk", "hours": (9.5, 15),
              "gap_b": (12, 40), "gap_c": (5, 25), "gap_d": (40, 120), "step_d": "app"},
-            {"pick": lambda p: p.title == "Executive Assistant", "hours": (18.5, 21.5),
-             "weekday": None, "gap_b": (60, 180), "gap_c": (5, 20), "gap_d": (25, 90),
-             "step_d": "recovery"},
-            {"pick": lambda p: p.privileged, "hours": (5.5, 7.5), "weekday": True,
+            {"pick": lambda p: p.title == "Executive Assistant", "hours": (15, 16.5),
+             "gap_b": (150, 330), "gap_c": (5, 20), "gap_d": (25, 90), "step_d": "recovery"},
+            {"pick": lambda p: p.privileged, "hours": (9, 11),
              "gap_b": (20, 50), "gap_c": (2, 10), "gap_d": (10, 40), "step_d": "role"},
             # this one spans two days: the new MFA method is registered the next morning
-            {"pick": lambda p: p.dept == "lending", "hours": (15.5, 17.5), "weekday": True,
+            {"pick": lambda p: p.dept == "lending", "hours": (15.5, 16.5),
              "gap_b": (16 * 60, 21 * 60), "gap_c": (10, 40), "gap_d": (90, 240),
              "step_d": "recovery"},
             {"pick": lambda p: p.dept == "executives" and p.title != "Executive Assistant",
-             "hours": (21, 23), "weekday": False, "gap_b": (30, 90), "gap_c": (5, 15),
-             "gap_d": (20, 60), "step_d": "app"},
+             "hours": (14, 16), "gap_b": (300, 480), "gap_c": (5, 15), "gap_d": (20, 60),
+             "step_d": "app"},
         ]
         tpl = templates[index % len(templates)]
         victim = self.take_user(tpl["pick"])
-        dev, ip, loc = self.attacker_context(index)
+        dev, ip, loc = self.unfamiliar_context(victim)
         gap_b = self.minutes(*tpl["gap_b"])
         gap_c = self.minutes(*tpl["gap_c"])
         gap_d = self.minutes(*tpl["gap_d"])
-        t_a = self.place(gap_b + gap_c + gap_d, tpl["hours"], tpl["weekday"])
+        t_a = self.place(gap_b + gap_c + gap_d, tpl["hours"], True)
         t_b, t_c = t_a + gap_b, t_a + gap_b + gap_c
         t_d = t_c + gap_d
         case = Case(victim, "")
@@ -562,16 +603,13 @@ class Generator:
 
     def la_travelling(self) -> Case:
         p = self.take_user(lambda q: q.dept != "helpdesk")
-        loc, ip = self.pick(TRAVEL_LOCS), self.pick(FOREIGN_IP_POOL)
+        loc, ip = self.pick(self.foreign_choices), self.pick(FOREIGN_IP_POOL)
         span = timedelta(days=2)
         t = self.place(span, (8, 12), True)
         case = Case(p, (
             f"{p.display} was travelling: sign-ins came from a new country but always from their "
             "usual laptop, with no password reset and no new MFA method."))
-        for offset in sorted(self.rng.randrange(0, int(span.total_seconds()))
-                             for _ in range(self.rng.randrange(3, 5))):
-            ts = t + timedelta(seconds=offset)
-            case.events.append((ts, self.signin(ts, p, p.laptop, ip, loc, self.pick(p.apps))))
+        case.events += self.away_spell(p, t, span, loc, ip, self.rng.randrange(3, 5))
         return case
 
     def la_new_hire(self) -> Case:
@@ -635,15 +673,13 @@ class Generator:
 
     def la_vpn(self) -> Case:
         p = self.take_user(lambda q: q.dept != "helpdesk")
-        loc, ip = self.pick(VPN_LOCS), self.pick(FOREIGN_IP_POOL)
+        loc, ip = self.pick(self.foreign_choices), self.pick(FOREIGN_IP_POOL)
         span = timedelta(hours=4)
         t = self.place(span, (9, 13), True)
         case = Case(p, (
             f"{p.display} used a VPN, so the sign-in place changed country, but every sign-in "
             "came from their usual laptop with no reset and no new MFA method."))
-        for offset in sorted(self.rng.randrange(0, int(span.total_seconds())) for _ in range(3)):
-            ts = t + timedelta(seconds=offset)
-            case.events.append((ts, self.signin(ts, p, p.laptop, ip, loc, self.pick(p.apps))))
+        case.events += self.away_spell(p, t, span, loc, ip, 3)
         return case
 
     def la_reset_known_device(self) -> Case:
@@ -683,28 +719,32 @@ class Generator:
         local = self.local_of(t)
         at_work = weekday and 8 <= local.hour < 18
         ip = p.office_ip if (at_work or p.remote) else p.home_ip
+        loc = p.loc
+        away = self.away_at(p, t)
+        if away:  # travelling or on a VPN: everything comes from the away place
+            loc, ip = away
         r = rng.random()
-        if p.personal and r < 0.05:
+        if p.personal and r < 0.15:
             dev = p.personal
-        elif p.mobile and r < 0.3:
+        elif p.mobile and r < 0.4:
             dev = p.mobile
         else:
             dev = p.laptop
         app = self.pick(p.apps)
-        if ip == p.office_ip and dev is p.laptop and not p.remote:
+        if ip == p.office_ip and dev is p.laptop and not p.remote and not away:
             req = REQ_SINGLE if rng.random() < 0.6 else REQ_MULTI
         else:
             req = REQ_SINGLE if rng.random() < 0.25 else REQ_MULTI
         if rng.random() < FAIL_RATE:
             if rng.random() < 0.85:
-                self.signin(t, p, dev, ip, p.loc, app, RESULT_BAD_PASSWORD, REQ_SINGLE)
+                self.signin(t, p, dev, ip, loc, app, RESULT_BAD_PASSWORD, REQ_SINGLE)
                 t_ok = t + self.minutes(0.25, 1.5)
             else:
-                self.signin(t, p, dev, ip, p.loc, app, RESULT_MFA_FAILED, REQ_MULTI)
+                self.signin(t, p, dev, ip, loc, app, RESULT_MFA_FAILED, REQ_MULTI)
                 t_ok = t + self.minutes(0.5, 2)
-            self.signin(t_ok, p, dev, ip, p.loc, app, RESULT_OK, req)
+            self.signin(t_ok, p, dev, ip, loc, app, RESULT_OK, req)
         else:
-            self.signin(t, p, dev, ip, p.loc, app, RESULT_OK, req)
+            self.signin(t, p, dev, ip, loc, app, RESULT_OK, req)
 
     def normal_signins(self, sessions_target: float) -> None:
         weights = []
@@ -753,10 +793,36 @@ class Generator:
                 _, ip, _ = self.usual_context(p, t)
                 self.audit(t, OP_RESET_SELF, p, ip, p, [("Method", None, "mobile app code")])
 
+    def routine_resets(self, count: int) -> None:
+        """Ordinary helpdesk resets (some with the callback note, some without) that are not
+        part of any labelled case: only known-device sign-ins follow, no new MFA method."""
+        for i in range(count):
+            p = self.take_user(lambda q: q.dept != "helpdesk")
+            t = self.place(timedelta(hours=1), (9, 16.5), True)
+            self.reset_by_helpdesk(t, p, verified=(i % 2 == 0))
+            for _ in range(self.rng.randrange(1, 3)):
+                ts = t + self.minutes(5, 50)
+                self.known_signin(ts, p)
+
+    def routine_away(self) -> None:
+        """Unlabelled travellers and VPN users, one per place in use, so that every place the
+        hidden sequences use is also an ordinary place for ordinary people."""
+        for i, loc in enumerate(self.foreign_choices):
+            p = self.take_user(lambda q: q.dept != "helpdesk")
+            ip = self.pick(FOREIGN_IP_POOL)
+            if i % 2 == 0:
+                span = timedelta(days=min(2, self.days - 1))
+                t = self.place(span, (8, 12), True)
+            else:
+                span = timedelta(hours=4)
+                t = self.place(span, (9, 13), True)
+            self.away_spell(p, t, span, loc, ip, 2)
+
     # ---- driver ------------------------------------------------------------------------
 
     def run(self) -> dict:
         self.build_people()
+        self.foreign_choices = self.rng.sample(FOREIGN_LOCS, N_FOREIGN_CHOICES)
         takeover_labels, lookalike_labels = [], []
         for i in range(self.n_takeovers):
             self.takeover_cases.append(self.build_takeover(i))
@@ -768,6 +834,8 @@ class Generator:
         for _ in range(self.days // 7):  # routine new hires: normal, unlabelled onboarding
             p = self.take_user(lambda q: q.dept in ("branch", "lending", "finance"))
             self.new_hire_case(p)
+        self.routine_resets(min(6, max(1, self.days // 3)))
+        self.routine_away()
         hidden_rows = len(self.signin_rows) + len(self.audit_rows)
         n_audit = round(self.events * ROUTINE_AUDIT_SHARE)
         remaining = self.events - hidden_rows - n_audit
@@ -781,7 +849,7 @@ class Generator:
             lookalike_labels.append(case.label(f"LA{i}"))
         return {
             "seed": self.seed,
-            "generated": (self.start + timedelta(days=self.days)).isoformat(),
+            "generated": (self.start + timedelta(days=self.days - 1)).isoformat(),  # last local day
             "takeovers": takeover_labels,
             "lookalikes": lookalike_labels,
         }

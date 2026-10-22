@@ -7,6 +7,9 @@ A label of yours counts as a hit when it matches a not-yet-matched takeover in t
   * evidence: it lists at least one CorrelationId that is in the key takeover's evidence, or
   * time window: same UserPrincipalName and the two [start, end] time windows overlap.
 Event ids are checked first, then time windows, and each key takeover can be hit only once.
+Write start and end in UTC with a trailing Z (for example 2026-09-17T16:09:01Z): the data is in
+UTC and Toronto local time is 4 hours behind it in September. A time without a zone is read as UTC.
+An untouched template entry (empty user and no evidence) is ignored.
 
 precision = hits / labels you gave        (how many of your labels were real)
 recall    = hits / takeovers in the key   (how many of the real ones you found)
@@ -65,9 +68,15 @@ def shares_evidence(a, b) -> bool:
 
 
 def score(labels: dict, key: dict) -> dict:
-    mine = list(labels.get("takeovers") or [])
+    # An untouched entry copied from my-labels.template.json (no user and no evidence) is not a
+    # label: leaving it in would count as a wrong guess and lower the precision.
+    mine = [m for m in labels.get("takeovers") or [] if str(m.get("user", "")).strip()
+            or any(str(x).strip() for x in m.get("evidence") or [])]
     truth = list(key.get("takeovers") or [])
     benign = list(key.get("lookalikes") or [])
+    # Matching is greedy first-fit: each label takes the first unmatched key takeover it fits.
+    # That is good enough here because the 5 takeovers are different users at different times,
+    # so a label almost never fits two of them; an optimal assignment would give the same score.
     matched = []  # (my index, key index)
     used_mine, used_key = set(), set()
     for rule in (shares_evidence, lambda a, b: same_user(a, b) and windows_overlap(a, b)):
