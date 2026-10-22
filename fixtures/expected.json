@@ -4,27 +4,27 @@
   "takeovers": [
     {
       "id": "TK1",
-      "user": "divya.moreau@mapleharbour.example",
-      "start": "2026-09-15T16:21:39Z",
-      "end": "2026-09-15T18:40:26Z",
+      "user": "beatrix.underhill@mapleharbour.example",
+      "start": "2026-09-15T17:01:47Z",
+      "end": "2026-09-15T19:02:42Z",
       "evidence": [
-        "98772790-c172-4f06-b8b8-f27000f72d3c",
-        "e9de0479-4044-4aa0-8a30-421862f2a21b",
-        "ed97ec76-21f9-4a99-be54-4d56d096bfd6",
-        "cd751e08-023a-40a2-aed5-1b127f1d490e"
+        "2f6fb70c-7247-49d3-8ca9-3b0dc9a3eaae",
+        "d0a21282-44a0-4767-bcc0-85820dce12ee",
+        "9515a821-1aed-4f0a-b704-9b75f2d387ea",
+        "dfa74ea0-1c24-4a8e-8183-5fbf730af8a6"
       ],
-      "summary": "Divya Moreau (Finance Clerk) had their password reset by the helpdesk with no callback-verification note, a new MFA method was registered, and the account then signed in from a device, IP address and country never seen for them and signed in to the Core Banking Admin app."
+      "summary": "Beatrix Underhill (Finance Clerk) had their password reset by the helpdesk with no callback-verification note, a new MFA method was registered, and the account then signed in from a device, IP address and country never seen for them and signed in to the Core Banking Admin app."
     },
     {
       "id": "TK2",
       "user": "farid.rasmussen@mapleharbour.example",
-      "start": "2026-09-16T20:09:20Z",
-      "end": "2026-09-17T02:40:09Z",
+      "start": "2026-09-15T19:39:54Z",
+      "end": "2026-09-16T01:10:30Z",
       "evidence": [
-        "6bca9b3f-18af-466c-b555-d6ae15866ffb",
-        "4b3e90b7-d743-4571-879d-bc121f04a6ff",
-        "5f7b07b8-4485-404f-911f-52dc47868e4a",
-        "707c5f3d-32fe-4f36-82a5-5162bcf1fcb5"
+        "596d0329-7f0c-41d2-a460-87f922092c2e",
+        "dd926f2b-5470-454a-9533-5b1d16a1c051",
+        "4b01e63f-7696-4004-aab4-ba86ac72cc8c",
+        "a46278d5-8929-485e-96d3-843b2d0f3de0"
       ],
       "summary": "Farid Rasmussen (Executive Assistant) had their password reset by the helpdesk with no callback-verification note, a new MFA method was registered, and the account then signed in from a device, IP address and country never seen for them and changed the account's recovery email address to an outside mailbox."
     }
@@ -32,40 +32,39 @@
   "lookalikes": [
     {
       "id": "LA1",
-      "user": "liam.dubois@mapleharbour.example",
-      "start": "2026-09-14T15:00:09Z",
-      "end": "2026-09-14T15:38:22Z",
+      "user": "katya.hashemi@mapleharbour.example",
+      "start": "2026-09-16T18:49:06Z",
+      "end": "2026-09-16T19:19:49Z",
       "evidence": [
-        "a64ed996-3b3b-4813-86bc-2b9981e004fb",
-        "5fb65b55-ea14-443a-b2c3-9a28d72eb3a1",
-        "1e84fb36-3b9e-4acb-8b2e-7245e07b59d8"
+        "48da1161-5272-4c90-a5c2-d66b1fc614c0",
+        "360a581e-a8dd-451d-967d-7f8e5fa98a75",
+        "27655400-96be-43c2-9378-6930248a0860"
       ],
-      "summary": "Liam Dubois lost their phone; the helpdesk reset the password after a callback to the number on file (written in the ticket), the new MFA method was registered, and the next sign-in came from their usual laptop at their usual place."
+      "summary": "Katya Hashemi lost their phone; the helpdesk reset the password after a callback to the number on file (written in the ticket), the new MFA method was registered, and the next sign-in came from their usual laptop at their usual place."
     },
     {
       "id": "LA2",
-      "user": "farid.lavoie@mapleharbour.example",
-      "start": "2026-09-14T18:07:52Z",
-      "end": "2026-09-14T19:07:23Z",
+      "user": "uma.vasquez@mapleharbour.example",
+      "start": "2026-09-14T18:20:16Z",
+      "end": "2026-09-14T19:29:15Z",
       "evidence": [
-        "aa2d6c38-c71c-488c-8666-4843428bf773",
-        "2430ca6d-570b-434d-9e63-af1609969e7c",
-        "e9f8f71f-a6d2-4040-bb73-52c19973cf5c"
+        "3c0e0c1d-a4bf-45e3-8ca0-0491f0ea5d1e",
+        "dbaa31e1-19e8-4549-b7cc-c557833c5edf",
+        "7ba6af3e-9a0c-4f9c-8278-aca58292e811"
       ],
-      "summary": "A busy helpdesk agent reset the password for Farid Lavoie without the callback note, but only sign-ins from their known laptop and usual place followed and no new MFA method was added."
+      "summary": "A busy helpdesk agent reset the password for Uma Vasquez without the callback note, but only sign-ins from their known laptop and usual place followed and no new MFA method was added."
     },
     {
       "id": "LA3",
-      "user": "dmitri.okafor@mapleharbour.example",
-      "start": "2026-09-14T19:59:57Z",
-      "end": "2026-09-15T21:06:50Z",
+      "user": "uma.jovanovic@mapleharbour.example",
+      "start": "2026-09-14T16:09:28Z",
+      "end": "2026-09-16T05:51:26Z",
       "evidence": [
-        "88b409c8-a3a1-4d92-a790-bb018cd5d187",
-        "b2061ecc-65d4-44fd-a9e7-8b06a72ed508",
-        "aaf5a86e-4886-4d48-bcfd-36d168e7ed23",
-        "4ff6f2c5-0d25-4954-b404-2f1e6af7ea31"
+        "c8cf5b3e-f2d7-4233-9d93-03489b1e5275",
+        "aa9e1693-09b0-4638-bf1e-ab9afde91f33",
+        "75f4f16f-e20a-4b56-8993-9127a24616c9"
       ],
-      "summary": "Dmitri Okafor was travelling: sign-ins came from a new country but only from devices they had used before, with no password reset and no new MFA method."
+      "summary": "Uma Jovanovic was travelling: sign-ins came from a new country but only from devices they had used before, with no password reset and no new MFA method."
     }
   ]
 }
