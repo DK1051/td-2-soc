@@ -5,12 +5,12 @@ Honesty rule for this repo: every file Claude produces is checked by the `verifi
 ## 2E Blind Hunt
 
 Claude (models used)
-- T2-S01 director (Opus 5.5): probe and its plain-English notes, caveats, run sheet, PR. Step 8 (real dataset + sealed key) not run — Eojin was not present.
+- T2-S01 director (Opus 5.5): probe and its plain-English notes, caveats, run sheet, PR. On 2026-10-23, with Eojin present, ran step 8 exactly as the brief's subshell (fresh 128-bit seed, AES-256 passphrase shown once), checked his stored passphrase (MATCH), committed only the five sealed data files.
 - T2-S01 `builder` (Sonnet 5.5): `generate.py` (standard library, seeded), `score_my_labels.py`, 31 tests, the seed-7 fixtures and their plain answer sheet, the templates and the 2E README.
 - T2-S01 `verifier` (Opus 5.5): mid-review (instead of redteam, because the files contain synthetic takeover sequences) and final check, `docs/verify/T2-S01.md`.
 
 Eojin
-- To do: be present for step 8 to store the passphrase and seed; then hunt blind, write `my-labels.json` and five incident reports, merge them, and only then decrypt and score.
+- Was present for step 8: stored the passphrase and seed in his password manager and typed the passphrase back (MATCH). To do: hunt blind, write `my-labels.json` and five incident reports, merge them, and only then decrypt and score.
 
 ## 2H Takeover Detection Pack
 

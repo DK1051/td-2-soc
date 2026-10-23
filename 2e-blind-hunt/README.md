@@ -1,6 +1,6 @@
 # 2E Blind Hunt: find the account takeovers hidden in two weeks of sign-in logs
 
-**Status: the real hunt dataset and sealed answer key are not generated yet — step 8 runs in a session where Eojin is present to store the passphrase and seed.** Until then this folder holds the generator, the tests, the templates and the small test fixtures in `../fixtures/`. There is no `data/` folder yet, so the hunt itself cannot start.
+**Status: the hunt dataset is generated and the answer key is sealed (2026-10-23).** `data/` holds 4,804 sign-in rows and 184 audit rows over 14 days, plus the encrypted answer key. Only Eojin holds the passphrase and the seed. Hunt first, commit `my-labels.json` and the five reports, and only then decrypt.
 
 ## What this project is (plain English)
 
@@ -111,7 +111,7 @@ Event ids are checked first, then time windows. Each key takeover can be hit onc
 - `data/dataset.sha256` holds the SHA-256 fingerprints of `signin.jsonl` and `audit.jsonl` taken when the key was sealed. If you recompute them and they match, the data you hunted in is the data the key belongs to, and nobody changed it afterwards.
 - `data/answer-key.sha256` holds the fingerprint of the *decrypted* key. After you decrypt, the fingerprint of your result must equal it. That proves the passphrase was right and the key was not altered. It does not reveal the key.
 
-(Both files are created in the session that seals the dataset; see Status.)
+(Both files were created when the dataset was sealed on 2026-10-23; see Status.)
 
 ## My blind-hunt score
 
