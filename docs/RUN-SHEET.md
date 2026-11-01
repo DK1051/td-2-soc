@@ -4,7 +4,7 @@ Day numbers are relative: D0 = the day Eojin uploads the kit (D0 = Oct 22 → D1
 
 - [x] T2-S01 · D0 · probe + 2E generator + sealed key + fixtures · needs: kit · cap $8 · status: DONE (code PR #1; step 8 sealed in PR #5)
 - [x] T2-S02 · D2 · 2H detections + Kusto CI · needs: T2-S01 merged · cap $15 · status: DONE (PR #4)
-- [ ] T2-S03 · D6 · 2A triage + eval (redteam design review first) · needs: T2-S02 merged, Eojin's 2E labels committed, his 10 injection strings · cap $20 · status: TODO (waits for Eojin's labels and injection strings)
+- [ ] T2-S03 · D6 · 2A triage + eval (redteam design review first) · needs: T2-S02 merged, Eojin's 2E labels committed, his 10 injection strings · cap $20 · status: FRAMEWORK DONE — real eval deferred (post-exam, plan usage)
 - [ ] T2-C1 · D7 · class 2E + 2H · needs: T2-S02 merged, Eojin's 2E labels committed · cap $5 · status: TODO (waits for Eojin's labels)
 - [ ] T2-C2 · D9 · class 2A · needs: T2-S03 merged · cap $4 · status: TODO
 
