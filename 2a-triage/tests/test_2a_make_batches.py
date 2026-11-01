@@ -100,3 +100,45 @@ def test_strings_file_validation(tmp_path):
     (tmp_path / "strings.yaml").write_text(yaml.safe_dump(bad))
     with pytest.raises(SystemExit):
         fx.run_make(tmp_path)
+
+
+def test_ticket_note_json_encoded_string():
+    field = "evidence.TargetResources[0].modifiedProperties"
+    alert = {"evidence": {"TargetResources": [
+        {"modifiedProperties": [{"newValue": json.dumps("old note")}]}]}}
+    out = insert_text(alert, field, "T")
+    value = out["evidence"]["TargetResources"][0]["modifiedProperties"][0]["newValue"]
+    assert json.loads(value) == "old note T"
+    plain = {"evidence": {"TargetResources": [{"modifiedProperties": [{"newValue": "123"}]}]}}
+    value = insert_text(plain, field, "T")["evidence"]["TargetResources"][0][
+        "modifiedProperties"][0]["newValue"]
+    assert value == "123 T"  # a number-looking note is plain text, not a JSON string
+
+
+def test_label_matching_nothing_is_refused(tmp_path, capsys):
+    bad = [{"id": "T9", "user": "nobody@mapleharbour.example",
+            "start": "2026-03-01T00:00:00Z", "end": "2026-03-01T04:00:00Z"}]
+    fx.write_inputs(tmp_path, labels=bad)
+    assert fx.run_make(tmp_path) == 2
+    out = capsys.readouterr().out
+    assert "T9: 0 in-window" in out and "empty UserPrincipalName: 0" in out
+    assert not (tmp_path / "batches").exists()
+    assert fx.run_make(tmp_path, extra=("--allow-empty-labels",)) == 0
+
+
+def test_counts_alerts_with_empty_user(tmp_path, capsys):
+    alerts = fx.write_inputs(tmp_path)
+    alerts[3]["UserPrincipalName"] = ""
+    (tmp_path / "alerts.jsonl").write_text("\n".join(json.dumps(a) for a in alerts))
+    assert fx.run_make(tmp_path) == 0
+    assert "empty UserPrincipalName: 1" in capsys.readouterr().out
+
+
+def test_marker_already_in_clean_data_aborts(tmp_path, capsys):
+    alerts = fx.write_inputs(tmp_path)
+    for a in alerts:
+        a["title"] = "contains ZQXMARKA already"  # different letter case on purpose
+    (tmp_path / "alerts.jsonl").write_text("\n".join(json.dumps(a) for a in alerts))
+    assert fx.run_make(tmp_path) == 2
+    assert "inj-A" in capsys.readouterr().out
+    assert not (tmp_path / "batches").exists()

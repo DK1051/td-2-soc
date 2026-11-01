@@ -18,7 +18,11 @@ skipped and another is tried.
 
 Ticket note definition (third field): the "newValue" of the first entry of
 evidence.TargetResources[0].modifiedProperties, because that is the free-text value a
-requester can type.
+requester can type. If that value is itself a JSON-encoded string, the text goes inside it.
+
+Before writing, main prints the in-window alert count per label and the count of alerts with an
+empty UserPrincipalName, and stops (exit 2) if a label matches no alerts (--allow-empty-labels
+overrides) or if any marker already appears in the clean sample.
 
 Only counts are printed. String text is never printed.
 """
@@ -32,7 +36,7 @@ import random
 import sys
 from pathlib import Path
 
-from triage_common import is_takeover, load_alerts, load_labels, load_strings
+from triage_common import is_takeover, load_alerts, load_labels, load_strings, matching_labels
 
 HERE = Path(__file__).resolve().parent
 DEFAULT_LABELS = HERE.parent.parent / "2e-blind-hunt" / "labels-final.json"
@@ -54,6 +58,13 @@ def _insert(node, path, text):
     if not path:
         if not isinstance(node, str):
             raise MissingField
+        try:
+            inner = json.loads(node)
+        except ValueError:
+            inner = None
+        if isinstance(inner, str):  # the value is itself a JSON-encoded string: edit inside it
+            joined = f"{inner} {text}" if inner else text
+            return json.dumps(joined, ensure_ascii=False)
         return f"{node} {text}" if node else text
     if isinstance(node, str):  # JSON written as text: parse, edit, write back as text
         try:
@@ -119,7 +130,9 @@ def pick_poisoned(sample, strings, per_string, rng, taken):
             field = names[(s_index * per_string + k) % len(names)]
             order = sample[:]
             rng.shuffle(order)
-            order.sort(key=lambda a: a["alert_id"] in used_anywhere)  # prefer unused alerts
+            unused = [a for a in order if a["alert_id"] not in used_anywhere]
+            used = [a for a in order if a["alert_id"] in used_anywhere]
+            order = unused + used  # prefer alerts not yet poisoned for another string
             for alert in order:
                 if alert["alert_id"] in used_here:
                     continue
@@ -153,6 +166,8 @@ def main(argv=None) -> int:
     p.add_argument("--per-string", type=int, default=3)
     p.add_argument("--max-clean", type=int, default=100)
     p.add_argument("--seed", type=int, default=1)
+    p.add_argument("--allow-empty-labels", action="store_true",
+                   help="do not stop when a label matches no alerts")
     p.add_argument("--n-strings", type=int, default=10,
                    help="exact number of entries the strings file must hold (tests use fewer)")
     args = p.parse_args(argv)
@@ -168,7 +183,35 @@ def main(argv=None) -> int:
     labels = load_labels(args.labels)
     rng = random.Random(args.seed)
 
+    # Sanity counts: a label that matches nothing usually means a wrong user or time window.
+    per_label = [0] * len(labels)
+    for alert in alerts:
+        for i in matching_labels(alert, labels):
+            per_label[i] += 1
+    for i, label in enumerate(labels):
+        print(f"label {label['id'] if label['id'] is not None else i + 1}: "
+              f"{per_label[i]} in-window alerts")
+    print(f"alerts with empty UserPrincipalName: "
+          f"{sum(1 for a in alerts if not str(a.get('UserPrincipalName', '')).strip())}")
+    empty = [label["id"] if label["id"] is not None else i + 1
+             for i, label in enumerate(labels) if per_label[i] == 0]
+    if empty and not args.allow_empty_labels:
+        print(f"refused: label(s) {', '.join(map(str, empty))} match 0 alerts; check the user "
+              "and times, or pass --allow-empty-labels")
+        return 2
+
     sample = make_clean_sample(alerts, labels, args.max_clean, rng)
+    sample_text = json.dumps(sample, ensure_ascii=False).lower()
+    clashing = [st["id"] for st in strings if st["marker"].lower() in sample_text]
+    if clashing:
+        print(f"refused: the marker of string(s) {', '.join(clashing)} already appears in the "
+              "clean alerts; pick a marker that does not occur in the data")
+        return 2
+    # Refuse a folder that already holds batch files: score.py reads every *.json in it, so
+    # files left over from an earlier run would be scored by mistake.
+    if args.out.exists() and any(args.out.glob("*.json")):
+        print(f"refused: {args.out} already holds .json files; empty it or pick a new --out")
+        return 2
     args.out.mkdir(parents=True, exist_ok=True)
     clean_names = []
     for n, start in enumerate(range(0, len(sample), args.batch_size), 1):
