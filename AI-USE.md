@@ -26,7 +26,7 @@ Eojin
 ## 2A Injection-Proof Triage
 
 Claude (models used)
-- (to be filled at wrap)
+- 2026-11-01 T2-S03 (framework only): Opus 5.5 (director) wrote `EVAL-DESIGN.md` and applied the review fixes; Fable 5.1 (`redteam`) reviewed the design and, later, the harness code; Sonnet 5.5 (`builder`) wrote `.claude/agents/triage-bot.md`, `harness/` (batch maker, scorer), tests on a placeholder fixture and the README; Opus 5.5 (`verifier`) checked the build. No model was run as the triage bot and no injection text was written by any model.
 
 Eojin
-- (to be filled at wrap)
+- Approved the scoped framework-only build. Still to do: his 2E labels (`my-labels.json`, then `labels-final.json`), his 10 injection strings (`injections/strings.yaml`, written only by him) and the full alert batch, before the real evaluation.
