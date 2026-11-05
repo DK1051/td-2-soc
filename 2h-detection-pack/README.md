@@ -17,7 +17,7 @@ Because nothing here touches a real bank, the test data is a set of **fixtures**
 
 The harness is the test code that proves this. It loads the fixtures into the **Kusto emulator**, which is Microsoft's query engine packaged as a free Docker container so it can run on your own PC, then runs every detection and checks the results.
 
-**Status:** nothing in this folder has been run against a real Microsoft 365 or Entra tenant, or against real Entra logs. See Limits.
+**Status: Built** (tested on fixtures and synthetic data only). Nothing in this folder has been run against a real Microsoft 365 or Entra tenant, or against real Entra logs. See Limits.
 
 ## The detections
 
@@ -121,6 +121,7 @@ His blind hunt on `2e-blind-hunt/data` continues separately. Nothing in this pac
 - **The fixtures are small, fictional and synthetic.** They cover three days of fictional Maple Harbour Credit Union sign-ins and admin actions. They contain no role-add events, no overnight takeover and no campaign. Those cases are covered only by the synthetic tests.
 - **Thresholds and time windows are planning values, not measured ones.** These include the 24-hour, 48-hour and 14-day windows, the chain-score alert level of 3, and TD-2H-05's "average plus 2" and "at least 3 resets".
 - **Field names match the 2E data generator.** The Entra `OperationName` strings the detections match are also the generator's. The real Entra strings are `TODO(verify)`, so a real tenant could use different names and the detections would miss them.
+- **Event-order assumption.** The detections assume the new MFA method is registered before the matching new-device sign-in is logged (this follows the 2E exercise design). A real tenant could log the sign-in first, in which case TD-2H-02 and TD-2H-04 could miss a real takeover. This has not been tested or fixed.
 - **Nothing here has run against a real tenant or real Entra logs.** A passing test on these fixtures shows that the queries behave as written on this data. It does not show that they catch real takeovers.
 - **ATT&CK IDs are `TODO(verify)`.** The AL26-010 wording is copied from the YAML; its source is `TODO(verify)`.
 - **The emulator path needs an x86-64 processor with AVX2.** On other machines, the `kql` CI job is the only place these data tests run.
