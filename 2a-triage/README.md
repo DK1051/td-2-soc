@@ -1,6 +1,6 @@
 # 2A Injection-Proof Triage
 
-**Status: framework complete. The real evaluation is pending Eojin's hand-authored 2E labels (`labels-final.json`), his 10 injection strings and the full alert batch; it is scheduled after his CompTIA A+ exam, on plan usage. No metrics are claimed.**
+**Status: Cut (framework built; no model has been run, no results). The real evaluation, moved past Nov 5, 2026, needs Eojin's hand-authored 2E labels (`labels-final.json`), his 10 injection strings and the full alert batch; it is scheduled after his CompTIA A+ exam, on plan usage. No metrics are claimed.**
 
 This folder has no results. Everything below describes what is built and how the later run will work.
 

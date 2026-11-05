@@ -17,7 +17,7 @@ Because nothing here touches a real bank, the test data is a set of **fixtures**
 
 The harness is the test code that proves this. It loads the fixtures into the **Kusto emulator**, which is Microsoft's query engine packaged as a free Docker container so it can run on your own PC, then runs every detection and checks the results.
 
-**Status:** nothing in this folder has been run against a real Microsoft 365 or Entra tenant, or against real Entra logs. See Limits.
+**Status: Built** (tested on fixtures and synthetic data only). Nothing in this folder has been run against a real Microsoft 365 or Entra tenant, or against real Entra logs. See Limits.
 
 ## The detections
 

@@ -1,6 +1,6 @@
 # 2E Blind Hunt: find the account takeovers hidden in two weeks of sign-in logs
 
-**Status: the hunt dataset is generated and the answer key is sealed (2026-10-23).** `data/` holds 4,804 sign-in rows and 184 audit rows over 14 days, plus the encrypted answer key. Only Eojin holds the passphrase and the seed. Hunt first, commit `my-labels.json` and the five reports, and only then decrypt.
+**Status: In progress. The hunt dataset is generated and the answer key is sealed (2026-10-23); the blind hunt, labels and reports are not done yet.** `data/` holds 4,804 sign-in rows and 184 audit rows over 14 days, plus the encrypted answer key. Only Eojin holds the passphrase and the seed. Hunt first, commit `my-labels.json` and the five reports, and only then decrypt.
 
 ## What this project is (plain English)
 
