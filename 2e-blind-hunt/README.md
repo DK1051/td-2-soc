@@ -140,7 +140,8 @@ Run the tests with `ruff check .` and `pytest -q` from the repo root.
 
 - **Claude (AI) built:** the generator, the scorer, the tests, the templates, the fixtures and this README. The data itself is produced by ordinary seeded Python code. There is no AI in the data, so the same seed always gives the same answer.
 - **Eojin decided (2026-10-22):** the hidden seed for the real dataset is a random 128-bit number instead of a number below one billion; and the data contains ordinary, unlabelled recovery-email changes (self-service and through the helpdesk) so that changing a recovery email is not, by itself, a sign of a takeover.
-- **Eojin does (not done yet):** keep the passphrase and seed in his password manager when the real dataset is sealed; hunt in the data with his own methods; write `my-labels.json` and the 5 incident reports; merge them before unsealing; score himself; write `labels-final.json`.
+- **Eojin did:** was present when the real dataset was sealed, stored the passphrase and seed in his password manager, and typed the passphrase back (MATCH).
+- **Eojin does (not done yet):** hunt in the data with his own methods; write `my-labels.json` and the 5 incident reports; merge them before unsealing; score himself; write `labels-final.json`.
 
 ## Limits
 
